@@ -221,6 +221,5 @@ The initial goal is to provide a functional anonymous messaging Mini App with:
 
 ## 📄 License
 
-This project is currently under development.
-License information will be added later.
-
+This project is licensed under the
+[GNU General Public License v3.0](./LICENSE).
