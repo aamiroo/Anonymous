@@ -20,7 +20,7 @@ class User(Base):
         default=datetime.utcnow,
     )
 
-    conversation: Mapped[list["Conversation"]] = relationship(
+    conversations: Mapped[list["Conversation"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )
@@ -32,6 +32,10 @@ class Conversation (Base):
     ForeignKey("users.id"),
     index=True
 )
+    created_at : Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+    )
     user: Mapped["User"] = relationship(
         back_populates="conversations",
     )
