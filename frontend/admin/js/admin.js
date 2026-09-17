@@ -7,16 +7,15 @@
   'use strict';
 
   /* ── Config ─────────────────────────────────────────────── */
-  var API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  var API_BASE = (location.protocol === 'http:' || location.protocol === 'https:')
     ? location.protocol + '//' + location.hostname + ':8000'
-    : '/api';
+    : 'http://localhost:8000';
 
   var EP = {
     health:       API_BASE + '/api/health',
-    // Admin conversations (list all) — needs backend endpoint
     conversations: API_BASE + '/api/admin/conversations',
-    conversation:  function (id) { return API_BASE + '/api/conversations/' + id; },
-    messages:      function (convId) { return API_BASE + '/api/Messages/' + convId; },
+    conversation:  function (id) { return API_BASE + '/api/admin/conversations/' + id; },
+    // reply sends content as query parameter: /reply?content=text
     reply:         function (convId) { return API_BASE + '/api/admin/conversations/' + convId + '/reply'; },
   };
 
@@ -32,6 +31,7 @@
     theme: localStorage.getItem('admin-theme') || 'light',
     searchQuery: '',
     viewMode: window.innerWidth > 768 ? 'desktop' : 'list',
+    repliedIds: {},
   };
 
   /* ── API ────────────────────────────────────────────────── */
@@ -39,7 +39,13 @@
     return fetch(url, Object.assign({
       headers: { 'Content-Type': 'application/json' },
     }, opts || {})).then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (!r.ok) {
+        return r.json().catch(function () { return null; }).then(function (body) {
+          var err = new Error((body && body.detail) || 'HTTP ' + r.status);
+          err.status = r.status;
+          throw err;
+        });
+      }
       return r.json();
     });
   }
@@ -56,14 +62,16 @@
     state.loading = true;
     render();
     return api(EP.conversations).then(function (data) {
-      state.conversations = data;
+      state.conversations = Array.isArray(data) ? data : [];
       state.loading = false;
       render();
-    }).catch(function () {
+    }).catch(function (err) {
       state.loading = false;
       state.conversations = [];
       render();
-      toast('دریافت مکالمات با خطا مواجه شد', 'error');
+      var msg = 'دریافت مکالمات با خطا مواجه شد';
+      if (err.status === 500) msg = 'خطای سرور در دریافت مکالمات';
+      toast(msg, 'error');
     });
   }
 
@@ -71,31 +79,44 @@
     state.messagesLoading = true;
     state.messages = [];
     renderDetail();
-    return api(EP.messages(conversationId)).then(function (data) {
-      state.messages = data;
+    return api(EP.conversation(conversationId)).then(function (data) {
+      state.messages = data.messages || [];
       state.messagesLoading = false;
       renderDetail();
       scrollMessagesBottom();
-    }).catch(function () {
+    }).catch(function (err) {
       state.messagesLoading = false;
-      state.messages = [];
+      // Fallback: use messages from list data
+      var conv = state.conversations.find(function (c) { return c.id === conversationId; });
+      if (conv && conv.messages && conv.messages.length) {
+        state.messages = conv.messages;
+      } else {
+        state.messages = [];
+      }
+      // 409 means conversation already answered - track it
+      if (err.status === 409) {
+        state.repliedIds[conversationId] = true;
+      }
       renderDetail();
-      toast('دریافت پیام‌ها با خطا مواجه شد', 'error');
+      if (err.status === 404) {
+        toast('مکالمه یافت نشد', 'error');
+      } else if (err.status === 409) {
+        // already answered — silently handled via repliedIds
+      } else if (err.status === 500) {
+        toast('خطای سرور در دریافت پیام‌ها', 'error');
+      } else {
+        toast('دریافت پیام‌ها با خطا مواجه شد', 'error');
+      }
     });
   }
 
-  // TODO: connect when POST /api/admin/conversations/{id}/reply exists
   function replyToConversation(conversationId, content) {
-    // Backend endpoint not yet implemented
-    // When ready, uncomment:
-    // return api(EP.reply(conversationId), {
-    //   method: 'POST',
-    //   body: JSON.stringify({ content: content }),
-    // }).then(function () {
-    //   toast('پاسخ ارسال شد', 'success');
-    //   return loadMessages(conversationId);
-    // });
-    return Promise.reject(new Error('Reply API not implemented'));
+    // Build URL with content as query parameter
+    var url = EP.reply(conversationId) + '?content=' + encodeURIComponent(content);
+    return api(url, { method: 'POST' }).then(function (data) {
+      state.repliedIds[conversationId] = true;
+      return data;
+    });
   }
 
   /* ── Helpers ────────────────────────────────────────────── */
@@ -159,6 +180,8 @@
   }
 
   function getConvStatus(conv) {
+    if (state.repliedIds[conv.id]) return 'replied';
+    if (conv.status === 'answered') return 'replied';
     if (!conv.messages || !conv.messages.length) return 'empty';
     var last = conv.messages[conv.messages.length - 1];
     return last.sender === 'user' ? 'pending' : 'replied';
@@ -353,10 +376,18 @@
       bodyHtml = renderMessages();
     }
 
-    mp.innerHTML = ''
-      + headerHtml
-      + '<div class="messages-area" id="messages-area">' + bodyHtml + '</div>'
-      + '<div class="composer">'
+    var isAnswered = status === 'replied';
+    var composerHtml = isAnswered
+      ? '<div class="composer answered">'
+      +   '<div class="composer-wrap">'
+      +     '<textarea class="composer-input" id="composer-input" placeholder="پاسخ داده شده..." rows="1" disabled></textarea>'
+      +     '<button class="composer-send" id="composer-send" disabled title="ارسال">'
+      +       '<span class="send-icon">↑</span>'
+      +     '</button>'
+      +   '</div>'
+      +   '<div class="composer-hint">این مکالمه قبلاً پاسخ داده شده است.</div>'
+      + '</div>'
+      : '<div class="composer">'
       +   '<div class="composer-wrap">'
       +     '<textarea class="composer-input" id="composer-input" placeholder="پاسخ خود را بنویسید..." rows="1"></textarea>'
       +     '<button class="composer-send" id="composer-send" disabled title="ارسال">'
@@ -365,6 +396,11 @@
       +   '</div>'
       +   '<div class="composer-hint">Enter برای ارسال · Shift+Enter برای خط جدید</div>'
       + '</div>';
+
+    mp.innerHTML = ''
+      + headerHtml
+      + '<div class="messages-area" id="messages-area">' + bodyHtml + '</div>'
+      + composerHtml;
 
     var backBtn = $id('detail-back');
     if (backBtn) {
@@ -447,12 +483,18 @@
         id: Date.now(), conversation_id: state.selectedId,
         sender: 'admin', content: content, created_at: new Date().toISOString(),
       });
+      renderSidebar();
       renderDetail();
       toast('پاسخ ارسال شد', 'success');
     }).catch(function (err) {
       state.sending = false;
       renderSendState('');
-      toast(err.message || 'خطا در ارسال پاسخ', 'error');
+      var msg = 'خطا در ارسال پاسخ';
+      if (err.status === 404) msg = 'مکالمه یافت نشد';
+      else if (err.status === 409) msg = 'این مکالمه قبلاً پاسخ داده شده';
+      else if (err.status === 500) msg = 'خطای سرور؛ لطفاً دوباره تلاش کنید';
+      else if (err.message) msg = err.message;
+      toast(msg, 'error');
     });
   }
 

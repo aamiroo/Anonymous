@@ -83,7 +83,11 @@
       clearTimeout(tid);
       if (!res.ok) {
         return res.json().catch(function() { return {}; }).then(function(body) {
-          throw new Error(body.detail || 'خطای سرور (' + res.status + ')');
+          var detail = body.detail;
+          if (Array.isArray(detail)) {
+            detail = detail.map(function(d) { return d.msg || d.detail || JSON.stringify(d); }).join(', ');
+          }
+          throw new Error(detail || 'خطای سرور (' + res.status + ')');
         });
       }
       return res.json();
@@ -242,7 +246,7 @@
     sendBtn.disabled = true;
     sendBtn.innerHTML = '<span class="send-spinner"></span>';
 
-    api(EP.sendNew(state.user.id, content)).then(function(data) {
+    api(EP.sendNew(state.user.id, content), { method: 'POST' }).then(function(data) {
       textarea.value = '';
       textarea.style.height = 'auto';
       state.sending = false;

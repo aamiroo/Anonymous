@@ -44,6 +44,10 @@ class Conversation (Base):
         back_populates="conversation",
         cascade="all, delete-orphan",
     )
+    status : Mapped [str] = mapped_column(
+        String(20),
+        default="pending"
+    )
 
 class Message(Base):
     __tablename__ = "messages"
