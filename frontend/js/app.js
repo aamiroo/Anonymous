@@ -1,97 +1,150 @@
 /* ============================================================
-   Eitaa Anonymous Messaging — SPA Frontend
-   Premium Glass UI · RTL · Persian
+   ناشناس — Anonymous Messaging · «نامهٔ بی‌نام» (SPA)
+   The Nameless Letter. Connects to the existing FastAPI
+   backend; API contract unchanged.
    ============================================================ */
 (function () {
   'use strict';
 
-  /* ── Config ──────────────────────────────────────────────── */
-  var API_BASE = 'http://localhost:8000';
+  /* ── Config ─────────────────────────────────────────────── */
+  var API_BASE = window.EA_API_BASE || (
+    (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+      ? 'http://localhost:8000'
+      : location.protocol + '//' + location.hostname + ':8000'
+  );
+
+  var USER_KEY = 'nl-user';
+  var THEME_KEY = 'nl-theme';
+
   var EP = {
-    login:       function(d) { return API_BASE + '/api/auth/login?init_data=' + encodeURIComponent(d); },
-    sendNew:     function(uid, c) { return API_BASE + '/api/Messages/send?user_id=' + uid + '&content=' + encodeURIComponent(c); },
-    sendReply:   function(cid, c) { return API_BASE + '/api/Messages/?conversation_id=' + cid + '&sender=user&content=' + encodeURIComponent(c); },
-    convos:      function(uid) { return API_BASE + '/api/conversations/user/' + uid; },
-    messages:    function(cid) { return API_BASE + '/api/Messages/' + cid; },
+    login:      function (d) { return API_BASE + '/api/auth/login?init_data=' + encodeURIComponent(d); },
+    sendNew:    function (uid, c) { return API_BASE + '/api/Messages/send?user_id=' + uid + '&content=' + encodeURIComponent(c); },
+    reply:      function (cid, c) { return API_BASE + '/api/Messages/?conversation_id=' + cid + '&sender=user&content=' + encodeURIComponent(c); },
+    convos:     function (uid) { return API_BASE + '/api/conversations/user/' + uid; },
+    convo:      function (cid) { return API_BASE + '/api/conversations/' + cid; },
   };
 
-  /* ── State ───────────────────────────────────────────────── */
+  /* ── State ──────────────────────────────────────────────── */
   var state = {
-    screen: 'splash',
+    screen: 'boot',            // boot | login | home | chat
     user: null,
     conversations: [],
     activeConvo: null,
     messages: [],
-    loading: false,
-    sending: false,
-    isDev: !window.Eitaa,
+    notices: { convLoading: false, msgsLoading: false, sending: false },
     online: navigator.onLine,
-    theme: localStorage.getItem('ea-theme') || 'light',
+    theme: localStorage.getItem(THEME_KEY) || 'light',
+    hasEitaa: !!(window.Eitaa && window.Eitaa.WebApp && window.Eitaa.WebApp.initData),
+    timers: null,
   };
 
-  /* ── DOM ─────────────────────────────────────────────────── */
-  var $ = function (s, p) { return (p || document).querySelector(s); };
+  var $  = function (s, p) { return (p || document).querySelector(s); };
+  var $$ = function (s, p) { return Array.prototype.slice.call((p || document).querySelectorAll(s)); };
   var app = $('#app');
 
-  /* ── Init ────────────────────────────────────────────────── */
-  function init() {
-    applyTheme(state.theme);
-    window.addEventListener('online', function() { state.online = true; updateConnection(); });
-    window.addEventListener('offline', function() { state.online = false; updateConnection(); });
-    if (state.isDev) {
-      renderSplash();
-      setTimeout(showDevLogin, 800);
-    } else {
-      renderSplash();
-      setTimeout(authenticate, 800);
-    }
+  /* ── Veil emblem ────────────────────────────────────────── */
+  function veil(seed, cls) {
+    seed = seed || 0;
+    var rot = ((seed * 37) % 5) * 12 - 24;
+    return '<svg class="anon-mark' + (cls ? ' ' + cls : '') + '" viewBox="0 0 48 48" aria-hidden="true" focusable="false">' +
+      '<rect class="am-tile" x="2.5" y="2.5" width="43" height="43" rx="13"/>' +
+      '<g style="transform:rotate(' + rot + 'deg); transform-origin:24px 24px">' +
+      '<rect class="am-veil" x="11" y="18.5" width="26" height="4.6" rx="2.3"/>' +
+      '<rect class="am-eye" x="15.5" y="25.5" width="5.2" height="7" rx="2.6"/>' +
+      '<rect class="am-eye" x="27.3" y="25.5" width="5.2" height="7" rx="2.6"/>' +
+      '</g></svg>';
   }
 
-  /* ── Theme ───────────────────────────────────────────────── */
-  function applyTheme(t) {
-    document.documentElement.setAttribute('data-theme', t);
-    var meta = $('meta[name="theme-color"]');
-    if (meta) meta.content = t === 'dark' ? '#0c1222' : '#f8fafc';
+  function icon(name) {
+    var paths = {
+      send:    '<path d="M12 16.5V4M6.5 8.5 12 3l5.5 5.5"/><path d="M4.5 13.5 6.8 19a1.4 1.4 0 0 0 1.3.9h7.8a1.4 1.4 0 0 0 1.3-.9l2.3-5.5"/>',
+      back:    '<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>',
+      moon:    '<path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a7 7 0 0 0 11 11z"/>',
+      sun:     '<circle cx="12" cy="12" r="4.2"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/>',
+      clock:   '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+      quill:   '<path d="M20 4c1 1.4.6 3.6-1 5.4L8 20l-4 1 1-4L16 5c1.6-1.6 3.7-2 5-1z"/><path d="M14 8l2 2"/>',
+      eye:     '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+      eyeOff:  '<path d="M9.9 4.2A9.8 9.8 0 0 1 12 4c6.5 0 10 8 10 8a17.6 17.6 0 0 1-2.4 3.4M6.3 6.3A17.7 17.7 0 0 0 2 12s3.5 8 10 8a9.7 9.7 0 0 0 4.6-1.1M4 4l16 16"/>',
+      retry:   '<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/>',
+    };
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[name] || '') + '</svg>';
   }
 
-  function toggleTheme() {
-    state.theme = state.theme === 'light' ? 'dark' : 'light';
-    localStorage.setItem('ea-theme', state.theme);
-    applyTheme(state.theme);
-    var btn = $('.theme-toggle');
-    if (btn) btn.innerHTML = state.theme === 'dark' ? '☀️' : '🌙';
+  /* ── Utils ──────────────────────────────────────────────── */
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
   }
 
-  /* ── Splash ──────────────────────────────────────────────── */
-  function renderSplash() {
-    state.screen = 'splash';
-    app.innerHTML =
-      '<div class="splash">' +
-        '<div class="splash-icon">💌</div>' +
-        '<div class="splash-title">پیام ناشناس</div>' +
-        '<div class="splash-dots"><span></span><span></span><span></span></div>' +
-      '</div>';
+  function faNum(n) {
+    try { return Number(n).toLocaleString('fa-IR'); } catch (e) { return String(n); }
   }
 
-  /* ── API Client ──────────────────────────────────────────── */
+  function fmtTime(iso) {
+    if (!iso) return '';
+    try { return new Date(iso).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; }
+  }
+  function fmtDay(iso) {
+    if (!iso) return '';
+    try {
+      var d = new Date(iso), now = new Date();
+      if (d.toDateString() === now.toDateString()) return 'امروز';
+      var y = new Date(now); y.setDate(y.getDate() - 1);
+      if (d.toDateString() === y.toDateString()) return 'دیروز';
+      return d.toLocaleDateString('fa-IR', { month: 'long', day: 'numeric' });
+    } catch (e) { return ''; }
+  }
+  function fmtRel(iso) {
+    if (!iso) return '';
+    try {
+      var t = new Date(iso).getTime(), diff = Math.max(0, (Date.now() - t) / 1000);
+      if (diff < 60) return 'اکنون';
+      if (diff < 3600) return faNum(Math.floor(diff / 60)) + ' دقیقه پیش';
+      if (diff < 86400) return faNum(Math.floor(diff / 3600)) + ' ساعت پیش';
+      var d = Math.floor(diff / 86400);
+      if (d === 1) return 'دیروز';
+      if (d < 7) return faNum(d) + ' روز پیش';
+      return fmtDay(iso);
+    } catch (e) { return ''; }
+  }
+
+  function convAnswered(c) {
+    if (c.status === 'answered') return true;
+    var msgs = c.messages || [];
+    if (!msgs.length) return false;
+    return msgs[msgs.length - 1].sender === 'admin';
+  }
+  function convPreview(c) {
+    var msgs = c.messages || [];
+    if (!msgs.length) return 'هنوز پیامی فرستاده نشده';
+    return msgs[msgs.length - 1].content || '';
+  }
+  function convTime(c) {
+    var msgs = c.messages || [];
+    if (!msgs.length) return fmtRel(c.created_at);
+    return fmtRel(msgs[msgs.length - 1].created_at);
+  }
+
+  /* ── API client ─────────────────────────────────────────── */
   function api(url, opts) {
     opts = opts || {};
     var ctrl = new AbortController();
-    var tid = setTimeout(function() { ctrl.abort(); }, 15000);
+    var tid = setTimeout(function () { ctrl.abort(); }, 20000);
     opts.signal = ctrl.signal;
-    return fetch(url, opts).then(function(res) {
+    return fetch(url, opts).then(function (res) {
       clearTimeout(tid);
-      if (!res.ok) {
-        return res.json().catch(function() { return {}; }).then(function(body) {
+      return res.json().catch(function () { return {}; }).then(function (body) {
+        if (!res.ok) {
           var detail = body.detail;
-          if (Array.isArray(detail)) {
-            detail = detail.map(function(d) { return d.msg || d.detail || JSON.stringify(d); }).join(', ');
-          }
-          throw new Error(detail || 'خطای سرور (' + res.status + ')');
-        });
-      }
-      return res.json();
-    }).catch(function(e) {
+          if (Array.isArray(detail)) detail = detail.map(function (d) { return d.msg || d.detail || ''; }).join('، ');
+          var err = new Error(detail || ('خطای سرور (' + res.status + ')'));
+          err.status = res.status;
+          throw err;
+        }
+        return body;
+      });
+    }).catch(function (e) {
       clearTimeout(tid);
       if (e.name === 'AbortError') throw new Error('اتصال با سرور قطع شد');
       if (!navigator.onLine) throw new Error('شما آفلاین هستید');
@@ -99,463 +152,548 @@
     });
   }
 
-  /* ── Auth ────────────────────────────────────────────────── */
+  /* ── Toast ──────────────────────────────────────────────── */
+  function toast(msg, type) {
+    type = type || 'info';
+    var box = $('#toast-container');
+    var el = document.createElement('div');
+    el.className = 'toast toast-' + type;
+    el.setAttribute('role', 'status');
+    el.innerHTML = '<span>' + esc(msg) + '</span>';
+    box.appendChild(el);
+    setTimeout(function () {
+      el.classList.add('hiding');
+      setTimeout(function () { el.remove(); }, 280);
+    }, 3600);
+  }
+
+  /* ── Theme ──────────────────────────────────────────────── */
+  function applyTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    var meta = $('meta[name="theme-color"]:not([media])');
+    if (meta) meta.content = t === 'dark' ? '#191611' : '#f3efe6';
+    var btn = $('.theme-toggle');
+    if (btn) btn.innerHTML = t === 'dark' ? icon('sun') : icon('moon');
+  }
+  function toggleTheme() {
+    state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem(THEME_KEY, state.theme);
+    applyTheme(state.theme);
+  }
+
+  /* ── Connection ─────────────────────────────────────────── */
+  function setOnline(v) {
+    state.online = v;
+    var dots = $$('.status-dot');
+    dots.forEach(function (d) { d.textContent = ''; d.classList.toggle('offline', !v); });
+    var bar = $('.offline-bar');
+    if (bar) bar.classList.toggle('visible', !v);
+  }
+
+  /* ── Boot / Auth ────────────────────────────────────────── */
+  function init() {
+    applyTheme(state.theme);
+    setOnline(state.online);
+    window.addEventListener('online', function () { setOnline(true); });
+    window.addEventListener('offline', function () { setOnline(false); });
+    renderSplash();
+    if (state.hasEitaa) {
+      authenticate();
+    } else {
+      var saved = null;
+      try { saved = JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) { saved = null; }
+      if (saved && saved.id) {
+        state.user = saved;
+        showHome();
+      } else {
+        setTimeout(showDevLogin, 650);
+      }
+    }
+  }
+
   function authenticate() {
-    var initData = '';
-    if (window.Eitaa && window.Eitaa.WebApp) {
-      initData = window.Eitaa.WebApp.initData || '';
-    }
-    if (!initData) {
-      showDevLogin();
-      return;
-    }
-    api(EP.login(initData)).then(function(data) {
+    var initData = window.Eitaa && window.Eitaa.WebApp ? (window.Eitaa.WebApp.initData || '') : '';
+    if (!initData) { showDevLogin(); return; }
+    api(EP.login(initData)).then(function (data) {
       state.user = data;
-      localStorage.setItem('ea-user', JSON.stringify(data));
+      localStorage.setItem(USER_KEY, JSON.stringify(data));
       showHome();
-    }).catch(function() {
+    }).catch(function () {
       showDevLogin();
     });
   }
 
-  function showDevLogin() {
-    state.screen = 'devLogin';
+  /* ── Splash ─────────────────────────────────────────────── */
+  function renderSplash() {
+    state.screen = 'boot';
+    app.classList.remove('chat-mode');
     app.innerHTML =
-      '<div class="login-screen">' +
-        '<div class="login-card glass">' +
-          '<div class="login-icon">🔐</div>' +
-          '<h2 class="login-title">ورود توسعه‌دهی</h2>' +
-          '<p class="login-desc">برای تست، شناسه کاربری خود را وارد کنید</p>' +
-          '<input type="number" id="dev-uid" class="login-input" placeholder="شناسه کاربری" inputmode="numeric">' +
-          '<button id="dev-login-btn" class="login-btn">ورود</button>' +
-          '<p class="login-note">در نسخه نهایی از Eitaa WebApp استفاده می‌شود</p>' +
+      '<div class="splash-screen">' +
+        '<div class="splash-seal">' + veil(0, 'am-solid') + '</div>' +
+        '<h1 class="splash-name">ناشناس</h1>' +
+        '<p class="splash-tag">پیامت را بی‌نام بفرست</p>' +
+        '<div class="splash-dots"><span></span><span></span><span></span></div>' +
+      '</div>';
+    window.scrollTo(0, 0);
+  }
+
+  /* ── Dev login (only when Eitaa is not present) ─────────── */
+  function showDevLogin() {
+    state.screen = 'login';
+    app.classList.remove('chat-mode');
+    app.innerHTML =
+      '<div class="dev-login">' +
+        '<div class="dev-card">' +
+          '<div class="dev-seal">' + veil(0, 'am-solid') + '</div>' +
+          '<h1 class="dev-title">ورود آزمایشی</h1>' +
+          '<p class="dev-desc">در محیط غیر از ایتا، شناسه‌ی کاربری‌ات را وارد کن. در نسخهٔ اصلی، ورود از طریق Eitaa انجام می‌شود.</p>' +
+          '<input type="number" id="dev-uid" class="field" placeholder="شناسه کاربری" inputmode="numeric" aria-label="شناسه کاربری">' +
+          '<button id="dev-login-btn" class="btn btn-primary" style="width:100%;margin-top:14px">ورود</button>' +
+          '<p class="dev-note">کاربری که وارد می‌شود همان «شخص ناشناس» است</p>' +
         '</div>' +
       '</div>';
     var btn = $('#dev-login-btn');
     var input = $('#dev-uid');
-    if (btn) btn.onclick = function() {
-      var uid = parseInt(input.value);
+    function enter() {
+      var uid = parseInt(input.value, 10);
       if (!uid || uid < 1) { toast('شناسه نامعتبر است', 'error'); return; }
-      state.user = { id: uid, eitta_user_id: String(uid) };
-      localStorage.setItem('ea-user', JSON.stringify(state.user));
+      state.user = { id: uid, eitaa_user_id: String(uid) };
+      localStorage.setItem(USER_KEY, JSON.stringify(state.user));
       showHome();
-    };
+    }
+    if (btn) btn.addEventListener('click', enter);
     if (input) {
-      input.onkeydown = function(e) { if (e.key === 'Enter') btn.click(); };
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') enter(); });
       input.focus();
     }
   }
 
-  /* ── Home ────────────────────────────────────────────────── */
+  /* ── Home ───────────────────────────────────────────────── */
   function showHome() {
     state.screen = 'home';
     state.activeConvo = null;
     state.messages = [];
+    clearTimers();
+    app.classList.remove('chat-mode');
     renderHome();
-    loadConversations();
+    loadConversations(true);
+    state.timers = setInterval(function () { loadConversations(false); }, 15000);
   }
 
   function renderHome() {
     app.innerHTML =
-      renderHeader() +
-      renderConnectionBar() +
-      '<main class="main-content">' +
-        renderHero() +
-        renderComposeBox() +
-        '<div class="section-title">پیام‌های اخیر</div>' +
+      '<header class="topbar">' +
+        '<div class="topbar-in">' +
+          '<div class="brand">' +
+            '<span class="brand-seal">' + veil(0, 'am-solid') + '</span>' +
+            '<span class="brand-name">ناشناس</span>' +
+            '<span class="brand-status"><span class="dot status-dot"></span><span class="status-text">' + (state.online ? 'متصل' : 'آفلاین') + '</span></span>' +
+          '</div>' +
+          '<button class="icon-btn theme-toggle" aria-label="تغییر تم"></button>' +
+        '</div>' +
+      '</header>' +
+      '<div class="offline-bar"><span>' + icon('eyeOff') + 'اتصال اینترنت برقرار نیست</span></div>' +
+      '<main class="page">' +
+        '<section class="hero">' +
+          '<div class="hero-seal">' + veil(state.user ? state.user.id : 1, 'am-solid') + '</div>' +
+          '<span class="kicker">' + icon('quill') + 'مکاتبهٔ بی‌نام</span>' +
+          '<h1 class="hero-title">حرف تو، بدون نشان</h1>' +
+          '<p class="hero-sub">پیامت را بنویس؛ بدون نام می‌ماند و پاسخِ مدیر، محرمانه به همین گفتگو برمی‌گردد.</p>' +
+        '</section>' +
+        '<section class="compose-card" aria-label="پیام ناشناس جدید">' +
+          '<div class="compose-head">' +
+            '<span class="compose-title">' + icon('quill') + 'پیام ناشناس جدید</span>' +
+            '<span class="compose-cap">تا ۲۰۰۰ حرف</span>' +
+          '</div>' +
+          '<div class="compose-line">' +
+            '<textarea id="home-composer" class="composer-input" rows="1" placeholder="متن پیامت را بنویس…" maxlength="2000" aria-label="متن پیام ناشناس"></textarea>' +
+            '<button id="home-send" class="send-btn" disabled aria-label="ارسال پیام">' + icon('send') + '</button>' +
+          '</div>' +
+          '<div class="compose-hint">' + icon('clock') + 'Enter برای ارسال · Shift+Enter برای خط جدید</div>' +
+        '</section>' +
+        '<div class="list-head">' +
+          '<span class="list-title">نامه‌های بی‌نام تو</span>' +
+          '<span class="list-count" id="list-count"></span>' +
+        '</div>' +
         '<div id="conv-list" class="conv-list"></div>' +
       '</main>';
-    bindHeaderEvents();
-    bindComposeEvents();
+    applyTheme(state.theme);
+    bindHomeEvents();
+    setOnline(state.online);
   }
 
-  function renderHeader() {
-    return '<header class="header glass">' +
-      '<div class="header-inner">' +
-        '<div class="header-brand">' +
-          '<div class="header-logo">ناشناس</div>' +
-          '<div class="header-status">' +
-            '<span class="status-dot' + (state.online ? '' : ' offline') + '"></span>' +
-            '<span class="status-text">' + (state.online ? 'آنلاین' : 'آفلاین') + '</span>' +
-          '</div>' +
-        '</div>' +
-        '<button class="theme-toggle" aria-label="تغییر تم">' +
-          (state.theme === 'dark' ? '☀️' : '🌙') +
-        '</button>' +
-      '</div>' +
-    '</header>';
-  }
-
-  function renderConnectionBar() {
-    return '<div class="connection-bar' + (state.online ? '' : ' visible') + '">' +
-      '<span>⚠️ اینترنت قطع است</span>' +
-    '</div>';
-  }
-
-  function renderHero() {
-    return '<section class="hero fade-in">' +
-      '<div class="hero-glow"></div>' +
-      '<div class="hero-icon-wrap">' +
-        '<div class="hero-icon">💌</div>' +
-      '</div>' +
-      '<h1 class="hero-title gradient-text">پیام ناشناس</h1>' +
-      '<p class="hero-desc">پیامتو ناشناس بفرست. هیچ‌کس نمی‌فهمه کی فرستادی.</p>' +
-    '</section>';
-  }
-
-  function renderComposeBox() {
-    return '<div class="compose-section glass fade-in">' +
-      '<div class="compose-label">💬 پیام جدید</div>' +
-      '<div class="compose-row">' +
-        '<textarea id="home-composer" class="compose-input" rows="1" placeholder="پیامت رو بنویس..." maxlength="2000"></textarea>' +
-        '<button id="home-send" class="send-btn" disabled aria-label="ارسال">' +
-          '<span class="send-icon">➤</span>' +
-        '</button>' +
-      '</div>' +
-    '</div>';
-  }
-
-  function bindComposeEvents() {
-    var textarea = $('#home-composer');
-    var sendBtn = $('#home-send');
-    if (!textarea || !sendBtn) return;
-
-    textarea.addEventListener('input', function() {
-      sendBtn.disabled = !textarea.value.trim();
-      textarea.style.height = 'auto';
-      textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
-    });
-
-    sendBtn.addEventListener('click', function() { sendNewMessage(); });
-
-    textarea.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        if (textarea.value.trim()) sendNewMessage();
-      }
-    });
-  }
-
-  function sendNewMessage() {
-    var textarea = $('#home-composer');
-    var sendBtn = $('#home-send');
-    var content = textarea.value.trim();
-    if (!content || state.sending) return;
-
-    state.sending = true;
-    sendBtn.disabled = true;
-    sendBtn.innerHTML = '<span class="send-spinner"></span>';
-
-    api(EP.sendNew(state.user.id, content), { method: 'POST' }).then(function(data) {
-      textarea.value = '';
-      textarea.style.height = 'auto';
-      state.sending = false;
-      toast('پیام ارسال شد ✨', 'success');
-
-      // Reload convos then open the new conversation
-      return loadConversations().then(function() {
-        var convo = state.conversations.find(function(c) { return c.id === data.conversation_id; });
-        if (convo) openConversation(convo);
+  function bindHomeEvents() {
+    var ta = $('#home-composer');
+    var btn = $('#home-send');
+    if (ta && btn) {
+      ta.addEventListener('input', function () {
+        btn.disabled = !ta.value.trim() || state.notices.sending;
+        autoGrow(ta);
       });
-    }).catch(function(e) {
-      toast(e.message || 'خطا در ارسال پیام', 'error');
-      state.sending = false;
-    }).then(function() {
-      if (sendBtn) {
-        sendBtn.disabled = false;
-        sendBtn.innerHTML = '<span class="send-icon">➤</span>';
-      }
+      var send = function () { if (ta.value.trim()) sendNewMessage(); };
+      btn.addEventListener('click', send);
+      ta.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+      });
+    }
+    $$('.conv').forEach(function (row) {
+      row.addEventListener('click', function () {
+        var idx = parseInt(row.getAttribute('data-idx'), 10);
+        if (state.conversations[idx]) openConversation(state.conversations[idx]);
+      });
     });
   }
 
-  /* ── Conversations ───────────────────────────────────────── */
-  function loadConversations() {
-    return api(EP.convos(state.user.id)).then(function(data) {
-      state.conversations = data || [];
-      renderConversations();
-    }).catch(function(e) {
-      toast('خطا در بارگذاری پیام‌ها', 'error');
-    });
+  function autoGrow(ta) {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 150) + 'px';
+  }
+
+  function convSkeletons(n) {
+    var html = '';
+    for (var i = 0; i < (n || 4); i++) {
+      html += '<div class="skel-conv"><span class="skel-av skeleton"></span><span class="skel-lines"><span class="skel-line skeleton"></span><span class="skel-line skeleton"></span></span></div>';
+    }
+    return html;
   }
 
   function renderConversations() {
     var el = $('#conv-list');
+    var count = $('#list-count');
     if (!el) return;
-    if (!state.conversations.length) {
-      el.innerHTML = emptyStateHTML();
-      return;
+    if (state.notices.convLoading) { el.innerHTML = convSkeletons(); return; }
+
+    var pend = 0;
+    state.conversations.forEach(function (c) { if (!convAnswered(c)) pend++; });
+    if (count) {
+      count.textContent = faNum(state.conversations.length) + ' نامه · ' + faNum(pend) + ' در انتظار';
     }
+
     var html = '';
-    state.conversations.forEach(function(c, i) {
-      var lastMsg = c.messages && c.messages.length ? c.messages[c.messages.length - 1] : null;
-      var preview = lastMsg ? lastMsg.content : 'بدون پیام';
-      var time = lastMsg ? formatTime(lastMsg.created_at) : '';
-      html += '<div class="conv-card glass fade-in" style="animation-delay:' + (i * 60) + 'ms" data-idx="' + i + '" tabindex="0" role="button">' +
-        '<div class="conv-avatar">' +
-          '<div class="conv-avatar-letter">' + (i + 1) + '</div>' +
-        '</div>' +
-        '<div class="conv-info">' +
-          '<div class="conv-title">گفتگو #' + (c.id || (i + 1)) + '</div>' +
-          '<div class="conv-preview">' + escapeHtml(preview) + '</div>' +
-        '</div>' +
-        '<div class="conv-meta">' +
-          '<div class="conv-time">' + time + '</div>' +
-          (lastMsg && lastMsg.sender === 'admin' ? '<div class="conv-unread-dot"></div>' : '') +
-        '</div>' +
-      '</div>';
+    state.conversations.forEach(function (c, i) {
+      var preview = convPreview(c);
+      var answered = convAnswered(c);
+      html +=
+        '<button type="button" class="conv" data-idx="' + i + '" style="animation-delay:' + (i * 45) + 'ms">' +
+          '<span class="conv-avatar">' + veil(c.id || i + 1, 'am-plain') + '</span>' +
+          '<span class="conv-body">' +
+            '<span class="conv-top">' +
+              '<span class="conv-name">نامهٔ ' + faNum(c.id) + '</span>' +
+              '<span class="conv-time">' + esc(convTime(c)) + '</span>' +
+            '</span>' +
+            '<span class="conv-preview">' + esc(preview) + '</span>' +
+            '<span class="conv-foot">' +
+              (answered
+                ? '<span class="chip chip-answered">پاسخ داده شد</span>'
+                : '<span class="chip chip-pending">در انتظار پاسخ</span>') +
+            '</span>' +
+          '</span>' +
+        '</button>';
     });
-    el.innerHTML = html;
+    el.innerHTML = html || emptyStateHTML();
+    bindHomeEvents();
   }
 
-  function openConversation(convo) {
-    state.activeConvo = convo;
-    state.screen = 'chat';
-    renderChat();
-    loadMessages(convo.id);
-  }
-
-  /* ── Chat ────────────────────────────────────────────────── */
-  function renderChat() {
-    app.innerHTML =
-      renderChatHeader() +
-      renderConnectionBar() +
-      '<main class="chat-main">' +
-        '<div id="chat-messages" class="chat-messages"></div>' +
-      '</main>' +
-      renderChatComposer();
-    bindChatEvents();
-    bindHeaderEvents();
-  }
-
-  function renderChatHeader() {
-    var title = state.activeConvo ? 'گفتگو #' + state.activeConvo.id : 'گفتگو';
-    return '<header class="header glass header-chat">' +
-      '<div class="header-inner">' +
-        '<button id="back-btn" class="header-back" aria-label="بازگشت">➡</button>' +
-        '<div class="header-brand">' +
-          '<div class="header-title">' + title + '</div>' +
-          '<div class="header-status">' +
-            '<span class="status-dot' + (state.online ? '' : ' offline') + '"></span>' +
-            '<span class="status-text">ناشناس</span>' +
-          '</div>' +
-        '</div>' +
-        '<button class="theme-toggle" aria-label="تغییر تم">' +
-          (state.theme === 'dark' ? '☀️' : '🌙') +
-        '</button>' +
-      '</div>' +
-    '</header>';
-  }
-
-  function renderChatComposer() {
-    return '<div class="chat-composer glass">' +
-      '<div class="composer-row">' +
-        '<textarea id="chat-input" class="composer-input" rows="1" placeholder="پیامت رو بنویس..." maxlength="2000"></textarea>' +
-        '<button id="chat-send" class="send-btn" disabled aria-label="ارسال">' +
-          '<span class="send-icon">➤</span>' +
-        '</button>' +
-      '</div>' +
-    '</div>';
-  }
-
-  function bindChatEvents() {
-    var backBtn = $('#back-btn');
-    if (backBtn) backBtn.onclick = function() { showHome(); };
-
-    var textarea = $('#chat-input');
-    var sendBtn = $('#chat-send');
-    if (textarea) {
-      textarea.addEventListener('input', function() {
-        sendBtn.disabled = !textarea.value.trim();
-        textarea.style.height = 'auto';
-        textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
-      });
-
-      sendBtn.addEventListener('click', function() { sendChatReply(); });
-
-      textarea.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          if (textarea.value.trim()) sendChatReply();
-        }
-      });
-
-      textarea.focus();
-    }
-  }
-
-  function sendChatReply() {
-    var textarea = $('#chat-input');
-    var sendBtn = $('#chat-send');
-    var content = textarea.value.trim();
-    if (!content || state.sending || !state.activeConvo) return;
-
-    state.sending = true;
-    sendBtn.disabled = true;
-    sendBtn.innerHTML = '<span class="send-spinner"></span>';
-
-    // Optimistic message
-    var tempId = 'temp-' + Date.now();
-    var tempMsg = { id: tempId, sender: 'user', content: content, created_at: new Date().toISOString() };
-    state.messages.push(tempMsg);
-    renderMessages();
-    scrollToBottom();
-    textarea.value = '';
-    textarea.style.height = 'auto';
-
-    // Reply to existing conversation
-    api(EP.sendReply(state.activeConvo.id, content)).then(function() {
-      state.sending = false;
-      return loadMessages(state.activeConvo.id);
-    }).catch(function(e) {
-      state.messages = state.messages.filter(function(m) { return m.id !== tempId; });
-      renderMessages();
-      toast(e.message || 'خطا در ارسال', 'error');
-      state.sending = false;
-    }).then(function() {
-      if (sendBtn) {
-        sendBtn.innerHTML = '<span class="send-icon">➤</span>';
-        sendBtn.disabled = !textarea.value.trim();
+  function loadConversations(initial) {
+    if (!state.user) return Promise.resolve();
+    if (state.notices.convLoading) return Promise.resolve();
+    state.notices.convLoading = true;
+    var el = $('#conv-list');
+    if (el && initial) el.innerHTML = convSkeletons();
+    renderConversations();
+    return api(EP.convos(state.user.id)).then(function (data) {
+      state.notices.convLoading = false;
+      state.conversations = Array.isArray(data) ? data : [];
+      renderConversations();
+    }).catch(function (e) {
+      state.notices.convLoading = false;
+      if (initial) {
+        renderConversationsError(e);
+      } else {
+        setOnline(false);
       }
     });
   }
 
-  function loadMessages(cid) {
-    return api(EP.messages(cid)).then(function(data) {
-      state.messages = data || [];
+  function renderConversationsError(e) {
+    var el = $('#conv-list');
+    if (!el) return;
+    el.innerHTML =
+      '<div class="empty-state">' +
+        '<div class="empty-seal">' + veil(2, 'am-outline') + '</div>' +
+        '<p class="empty-title">نامه‌ها باز نشد</p>' +
+        '<p class="empty-desc">' + esc(e && e.message ? e.message : 'اتصال به سرور برقرار نشد') + '</p>' +
+        '<button class="btn btn-ghost" id="retry-btn">' + icon('retry') + 'تلاش دوباره</button>' +
+      '</div>';
+    var b = $('#retry-btn');
+    if (b) b.addEventListener('click', function () { loadConversations(true); });
+  }
+
+  function emptyStateHTML() {
+    return '<div class="empty-state">' +
+      '<div class="empty-seal">' + veil(1, 'am-outline') + '</div>' +
+      '<p class="empty-title">هنوز نامه‌ای نیست</p>' +
+      '<p class="empty-desc">اولین پیام ناشناس را از بالا بفرست؛ نوشته‌هایت این‌جا حفظ می‌شوند و پاسخ مدیر به همین نامه برمی‌گردد.</p>' +
+    '</div>';
+  }
+
+  /* ═══ INTEGRATION: POST /api/Messages/send ────────────────── */
+  function sendNewMessage() {
+    var ta = $('#home-composer');
+    var btn = $('#home-send');
+    var content = ta.value.trim();
+    if (!content || state.notices.sending || !state.user) return;
+
+    state.notices.sending = true;
+    btn.disabled = true;
+    btn.classList.add('is-sending');
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    api(EP.sendNew(state.user.id, content), { method: 'POST' }).then(function (data) {
+      ta.value = '';
+      ta.style.height = 'auto';
+      state.notices.sending = false;
+      btn.innerHTML = icon('send');
+      btn.disabled = true;
+      toast('نامه فرستاده شد', 'success');
+      var cid = data.conversation_id;
+      if (cid) {
+        var convo = state.conversations.find(function (c) { return c.id === cid; });
+        if (convo) {
+          openConversation(convo);
+        } else {
+          return loadConversations(true).then(function () {
+            var found = state.conversations.find(function (c) { return c.id === cid; });
+            if (found) openConversation(found);
+          });
+        }
+      }
+      return null;
+    }).catch(function (e) {
+      toast(e.message || 'خطا در فرستادن پیام', 'error');
+      state.notices.sending = false;
+      btn.innerHTML = icon('send');
+      btn.disabled = !ta.value.trim();
+      btn.classList.remove('is-sending');
+    });
+  }
+
+  /* ── Chat ───────────────────────────────────────────────── */
+  function openConversation(convo) {
+    state.screen = 'chat';
+    state.activeConvo = convo;
+    state.messages = [];
+    clearTimers();
+    app.classList.add('chat-mode');
+    renderChat();
+    loadMessages(true);
+    state.timers = setInterval(function () { pollChat(); }, 7000);
+  }
+
+  function renderChat() {
+    var c = state.activeConvo;
+    var answered = c ? convAnswered(c) : false;
+    app.innerHTML =
+      '<header class="topbar">' +
+        '<div class="topbar-in">' +
+          '<button class="icon-btn" id="back-btn" aria-label="بازگشت به نامه‌ها">' + icon('back') + '</button>' +
+          '<div class="chat-id">' +
+            '<span class="chat-avatar">' + veil(c ? c.id : 1, 'am-solid') + '</span>' +
+            '<span class="chat-meta">' +
+              '<span class="chat-name">نامهٔ ' + (c ? faNum(c.id) : '') + '</span>' +
+              '<span class="chat-sub">' + statusChip(answered) + '</span>' +
+            '</span>' +
+          '</div>' +
+          '<button class="icon-btn theme-toggle" aria-label="تغییر تم"></button>' +
+        '</div>' +
+      '</header>' +
+      '<div class="offline-bar"><span>' + icon('eyeOff') + 'اتصال اینترنت برقرار نیست</span></div>' +
+      '<main class="chat-page">' +
+        '<div class="chat-scroll" id="chat-messages"></div>' +
+        '<div class="chat-composer">' +
+          '<div class="compose-line">' +
+            '<textarea id="chat-input" class="composer-input" rows="1" placeholder="پاسخ ناشناس بنویس…" maxlength="2000" aria-label="متن پیام"></textarea>' +
+            '<button id="chat-send" class="send-btn" disabled aria-label="ارسال پیام">' + icon('send') + '</button>' +
+          '</div>' +
+          '<div class="compose-hint">' + icon('clock') + 'Enter برای ارسال · Shift+Enter برای خط جدید</div>' +
+        '</div>' +
+      '</main>';
+    applyTheme(state.theme);
+    bindChatEvents();
+    setOnline(state.online);
+  }
+
+  function statusChip(answered) {
+    return answered
+      ? '<span class="chip chip-answered">پاسخ داده شد</span>'
+      : '<span class="chip chip-pending">در انتظار پاسخ</span>';
+  }
+
+  function bindChatEvents() {
+    var back = $('#back-btn');
+    if (back) back.addEventListener('click', function () { showHome(); });
+
+    var ta = $('#chat-input');
+    var btn = $('#chat-send');
+    if (ta && btn) {
+      ta.addEventListener('input', function () {
+        btn.disabled = !ta.value.trim() || state.notices.sending;
+        autoGrow(ta);
+      });
+      var send = function () { if (ta.value.trim()) sendChatReply(); };
+      btn.addEventListener('click', send);
+      ta.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+      });
+      ta.addEventListener('focus', function () { scrollToBottom(); });
+      ta.focus();
+    }
+  }
+
+  /* ═══ INTEGRATION: GET /api/conversations/{id} ───────────── */
+  function loadMessages(initial, silent) {
+    if (!state.activeConvo) return Promise.resolve();
+    var cid = state.activeConvo.id;
+    if (initial) {
+      state.notices.msgsLoading = true;
       renderMessages();
-      scrollToBottom();
-    }).catch(function() {
+    }
+    return api(EP.convo(cid)).then(function (data) {
+      state.notices.msgsLoading = false;
+      state.activeConvo = { id: data.id, user_id: data.user_id, created_at: data.created_at, messages: data.messages || [] };
+      state.messages = (data.messages || []).map(function (m) { return m; });
       renderMessages();
+      scrollToBottom(data.messages ? data.messages.length : 0);
+      updateChatStatus();
+    }).catch(function () {
+      state.notices.msgsLoading = false;
+      renderMessages();
+      if (!silent) toast('دریافت پیام‌ها با خطا مواجه شد', 'error');
+    });
+  }
+
+  function pollChat() {
+    if (!state.activeConvo || !navigator.onLine) return;
+    var before = state.messages.length;
+    loadMessages(false, true).then(function () {
+      var after = state.messages.length;
+      if (after > before) {
+        var last = state.messages[after - 1];
+        if (last && last.sender === 'admin') {
+          toast('پاسخ جدیدی رسید', 'info');
+        }
+      }
+    });
+  }
+
+  /* ═══ INTEGRATION: POST /api/Messages/ (reply) ───────────── */
+  function sendChatReply() {
+    var ta = $('#chat-input');
+    var btn = $('#chat-send');
+    var content = ta.value.trim();
+    if (!content || state.notices.sending || !state.activeConvo) return;
+
+    var tempId = 'temp-' + Date.now();
+    var tempMsg = { id: tempId, sender: 'user', content: content, created_at: new Date().toISOString(), pending: true };
+    state.messages.push(tempMsg);
+
+    state.notices.sending = true;
+    btn.disabled = true;
+    btn.classList.add('is-sending');
+    btn.innerHTML = '<span class="spinner"></span>';
+    ta.value = '';
+    ta.style.height = 'auto';
+    renderMessages();
+    scrollToBottom();
+
+    api(EP.reply(state.activeConvo.id, content), { method: 'POST' }).then(function () {
+      state.notices.sending = false;
+      btn.innerHTML = icon('send');
+      btn.disabled = true;
+      return loadMessages(false, true);
+    }).catch(function (e) {
+      state.messages = state.messages.filter(function (m) { return m.id !== tempId; });
+      renderMessages();
+      toast(e.message || 'خطا در ارسال', 'error');
+      state.notices.sending = false;
+      btn.innerHTML = icon('send');
+      btn.disabled = !ta.value.trim();
+      btn.classList.remove('is-sending');
     });
   }
 
   function renderMessages() {
     var el = $('#chat-messages');
     if (!el) return;
-    if (!state.messages.length) {
-      el.innerHTML = '<div class="chat-empty">' +
-        '<div class="chat-empty-icon">💭</div>' +
-        '<div class="chat-empty-text">هنوز پیامی نیست...</div>' +
-        '<div class="chat-empty-hint">اولین پیام رو بفرست</div>' +
-      '</div>';
+    if (state.notices.msgsLoading) {
+      el.innerHTML =
+        '<div class="skel-msgs"><div class="skel-msg skeleton"></div><div class="skel-msg skeleton"></div><div class="skel-msg skeleton"></div></div>';
       return;
     }
-
+    if (!state.messages.length) {
+      el.innerHTML =
+        '<div class="chat-empty">' +
+          '<div class="chat-empty-seal">' + veil((state.activeConvo && state.activeConvo.id) || 1, 'am-outline') + '</div>' +
+          '<p class="chat-empty-title">شروع این نامه</p>' +
+          '<p class="chat-empty-desc">پیامت را بنویس؛ پاسخ محرمانه به همین‌جا می‌رسد.</p>' +
+        '</div>';
+      return;
+    }
     var html = '';
     var lastDate = '';
-    state.messages.forEach(function(m) {
-      var msgDate = formatDate(m.created_at);
-      if (msgDate !== lastDate) {
-        html += '<div class="chat-date-divider"><span>' + msgDate + '</span></div>';
-        lastDate = msgDate;
+    state.messages.forEach(function (m, i) {
+      var day = fmtDay(m.created_at);
+      if (day !== lastDate) {
+        html += '<div class="day"><span>' + day + '</span></div>';
+        lastDate = day;
       }
       var isUser = m.sender === 'user';
-      var cls = isUser ? 'msg msg-user' : 'msg msg-admin';
-      html += '<div class="' + cls + '">' +
-        '<div class="msg-bubble">' +
-          '<div class="msg-text">' + escapeHtml(m.content) + '</div>' +
-          '<div class="msg-time">' + formatTimeShort(m.created_at) + '</div>' +
-        '</div>' +
-      '</div>';
+      var prev = state.messages[i - 1];
+      var next = state.messages[i + 1];
+      var grouped = prev && prev.sender === m.sender;
+      var groupEnd = !next || next.sender !== m.sender;
+      html +=
+        '<div class="msg ' + (isUser ? 'msg-user' : 'msg-admin') + (grouped ? ' grp' : '') + '">' +
+          '<div class="bubble">' + esc(m.content) + '</div>' +
+          (groupEnd
+            ? '<span class="msg-meta">' + (m.pending ? icon('clock') : '') + fmtTime(m.created_at) + '</span>'
+            : '') +
+        '</div>';
     });
     el.innerHTML = html;
-    scrollToBottom();
   }
 
-  /* ── Event Listeners ─────────────────────────────────────── */
-  function bindHeaderEvents() {
-    var themeBtn = $('.theme-toggle');
-    if (themeBtn) themeBtn.onclick = toggleTheme;
+  function updateChatStatus() {
+    var sub = $('.chat-sub');
+    if (!sub) return;
+    sub.innerHTML = statusChip(convAnswered(state.activeConvo));
+    var bar = $('#chat-messages');
+    if (bar) bar.scrollTop = bar.scrollHeight;
   }
 
-  document.addEventListener('click', function(e) {
-    var card = e.target.closest('.conv-card');
-    if (card) {
-      var idx = parseInt(card.getAttribute('data-idx'));
-      if (state.conversations[idx]) openConversation(state.conversations[idx]);
-    }
-  });
-
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      var card = e.target.closest('.conv-card');
-      if (card) { e.preventDefault(); card.click(); }
-    }
-  });
-
-  /* ── Helpers ─────────────────────────────────────────────── */
-  function scrollToBottom() {
-    requestAnimationFrame(function() {
+  function scrollToBottom(freshCount) {
+    requestAnimationFrame(function () {
       var el = $('#chat-messages');
-      if (el) el.scrollTop = el.scrollHeight;
+      if (!el) return;
+      var nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+      if (freshCount === undefined || nearBottom || freshCount <= 2) {
+        el.scrollTop = el.scrollHeight;
+      }
     });
   }
 
-  function updateConnection() {
-    var dot = $('.status-dot');
-    if (dot) { if (state.online) dot.classList.remove('offline'); else dot.classList.add('offline'); }
-    var bar = $('.connection-bar');
-    if (bar) { if (state.online) bar.classList.remove('visible'); else bar.classList.add('visible'); }
+  /* ── Timers ─────────────────────────────────────────────── */
+  function clearTimers() {
+    if (state.timers) { clearInterval(state.timers); state.timers = null; }
   }
 
-  function escapeHtml(s) {
-    var d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
-  }
+  /* ── Global: theme toggles ──────────────────────────────── */
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('.theme-toggle');
+    if (t) toggleTheme();
+  });
 
-  function formatTime(iso) {
-    try {
-      var d = new Date(iso);
-      var now = new Date();
-      var diffMs = now - d;
-      var diffMin = Math.floor(diffMs / 60000);
-      if (diffMin < 1) return 'الان';
-      if (diffMin < 60) return diffMin + ' دقیقه پیش';
-      var diffH = Math.floor(diffMin / 60);
-      if (diffH < 24) return diffH + ' ساعت پیش';
-      return d.toLocaleDateString('fa-IR', { month: 'short', day: 'numeric' });
-    } catch (e) { return ''; }
-  }
-
-  function formatTimeShort(iso) {
-    try { return new Date(iso).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }); }
-    catch (e) { return ''; }
-  }
-
-  function formatDate(iso) {
-    try {
-      var d = new Date(iso);
-      var now = new Date();
-      if (d.toDateString() === now.toDateString()) return 'امروز';
-      var y = new Date(now); y.setDate(y.getDate() - 1);
-      if (d.toDateString() === y.toDateString()) return 'دیروز';
-      return d.toLocaleDateString('fa-IR', { month: 'long', day: 'numeric' });
-    } catch (e) { return ''; }
-  }
-
-  function emptyStateHTML() {
-    return '<div class="empty-state">' +
-      '<div class="empty-icon">💬</div>' +
-      '<div class="empty-title">هنوز پیامی نفرستادی</div>' +
-      '<div class="empty-desc">از کادر بالا اولین پیام ناشناس رو بفرست.</div>' +
-    '</div>';
-  }
-
-  function toast(msg, type) {
-    type = type || 'info';
-    var c = $('#toast-container');
-    var el = document.createElement('div');
-    el.className = 'toast toast-' + type;
-    el.innerHTML = '<span>' + escapeHtml(msg) + '</span>';
-    c.appendChild(el);
-    setTimeout(function() {
-      el.classList.add('hiding');
-      setTimeout(function() { el.remove(); }, 300);
-    }, 3500);
-  }
-
-  /* ── Boot ────────────────────────────────────────────────── */
+  /* ── Boot ───────────────────────────────────────────────── */
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
