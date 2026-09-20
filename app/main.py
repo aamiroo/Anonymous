@@ -7,6 +7,7 @@ from .conversations import router as conversation_router
 from .messages import router as messanger_router
 from .auth import router as auth_router
 from .admin import router as admin_router
+from .auth_admin import router as auth_admin_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -28,6 +29,7 @@ app.include_router(conversation_router)
 app.include_router(messanger_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(auth_admin_router)
 
 @app.get("/")
 async def root():

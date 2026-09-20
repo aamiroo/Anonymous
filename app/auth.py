@@ -1,22 +1,15 @@
 import hashlib
 import hmac
-from urllib.parse import parse_qsl
 import json
+import time
+from urllib.parse import parse_qsl
 
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic_settings import BaseSettings
 from sqlalchemy.orm import Session
 
 from .database import get_db
 from .models import User
-
-
-class Settings(BaseSettings):
-    eitaa_bot_token: str
-
-    class Config:
-        env_file = ".env"
-
+from .config import Settings
 
 settings = Settings()
 
@@ -27,8 +20,7 @@ router = APIRouter(
 
 
 def validate_init_data(init_data: str) -> dict:
-    data = dict(parse_qsl(init_data))
-
+    data = dict(parse_qsl(init_data, keep_blank_values=True))
     received_hash = data.pop("hash", None)
 
     if not received_hash:
@@ -36,7 +28,25 @@ def validate_init_data(init_data: str) -> dict:
             status_code=401,
             detail="Missing hash",
         )
+    auth_date = data.get("auth_date")
+    if not auth_date :
+        raise HTTPException(
+            status_code=401,
+            detail="Missing auth_date"
+        )
 
+    try:
+        auth_timestamp = int (auth_date)
+    except ValueError:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid auth_date"
+        )
+    if (int(time.time()) - auth_timestamp) > 3600:
+        raise HTTPException(
+            status_code=401 ,
+            detail="Expired initData"
+        )
     data_check_string = "\n".join(
         f"{key}={value}"
         for key, value in sorted(data.items())
@@ -76,9 +86,22 @@ async def login(
             status_code=401,
             detail="user data not found",
         )
-    user_info = json.loads(user_data)
 
-    eitaa_user_id = str(user_info["id"])
+    try:
+        user_info = json.loads(user_data)
+    except json.JSONDecodeError:
+        raise HTTPException(
+        status_code=401 ,
+        detail="Invalid user data",
+        )
+
+    eitaa_user_id = user_info.get("id")
+    if eitaa_user_id is None:
+        raise HTTPException(
+            status_code=401 ,
+            detail="User ID not found"
+        )
+    eitaa_user_id = str (eitaa_user_id)
     db_user = (
         db.query(User)
         .filter(User.eitta_user_id == eitaa_user_id)
@@ -86,7 +109,7 @@ async def login(
     )
     if not db_user:
         db_user = User(
-            eitta_user_id=eitaa_user_id
+            eitaa_user_id=eitaa_user_id
         )
         db.add(db_user)
         db.commit()

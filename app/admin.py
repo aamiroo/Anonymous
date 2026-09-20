@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .database import get_db
-from .models import Conversation, Message
+from .models import Conversation, Message , Admin
+from .auth_admin import get_current_admin
 
 router = APIRouter(
     prefix="/api/admin",
@@ -13,6 +14,7 @@ router = APIRouter(
 @router.get("/conversations")
 async def get_conversations(
     db: Session = Depends(get_db),
+    admin:  Admin = Depends(get_current_admin)
 ):
     conversations = (
         db.query(Conversation)
@@ -27,6 +29,7 @@ async def get_conversations(
 async def get_admin_conversation(
     conversation_id: int,
     db: Session = Depends(get_db),
+    admin :  Admin = Depends(get_current_admin)
 ):
     conversation = (
         db.query(Conversation)
@@ -62,6 +65,7 @@ async def reply_to_conversation(
     conversation_id: int,
     content: str,
     db: Session = Depends(get_db),
+    admin :  Admin = Depends(get_current_admin)
 ):
     conversation = (
         db.query(Conversation)

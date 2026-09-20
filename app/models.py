@@ -67,3 +67,24 @@ class Message(Base):
     conversation: Mapped["Conversation"] = relationship(
         back_populates="messages",
     )
+
+class Admin(Base):
+    __tablename__ = "admin"
+
+
+    id : Mapped[int] = mapped_column(primary_key=True)
+
+    user_name : Mapped[str] = mapped_column(
+        String(100) ,
+        unique=True,
+        index=True
+    )
+
+    pass_hash : Mapped[str] = mapped_column(
+        String(100)
+    )
+
+    created_at : Mapped[str] = mapped_column(
+        DateTime,
+        default=datetime.utcnow
+    )
