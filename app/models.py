@@ -1,9 +1,13 @@
+"""SQLAlchemy models for users, conversations, messages, and admins."""
+
+
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
+
 
 class User(Base):
     __tablename__ = "users"

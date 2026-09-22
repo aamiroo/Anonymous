@@ -1,7 +1,10 @@
+"""Utility for creating an initial admin account."""
+
+
 from pwdlib import PasswordHash
 
-from .database import Base , SessionLocal , engine
-from . models import Admin
+from .database import Base, SessionLocal, engine
+from .models import Admin
 
 pass_hash = PasswordHash.recommended()
 

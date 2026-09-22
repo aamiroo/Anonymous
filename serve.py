@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Minimal dev server for the frontend — separate from the FastAPI backend.
 
 Usage:

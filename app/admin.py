@@ -1,9 +1,12 @@
+"""Admin API endpoints for managing conversations and sending replies."""
+
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .database import get_db
-from .models import Conversation, Message , Admin
 from .auth_admin import get_current_admin
+from .database import get_db
+from .models import Admin, Conversation, Message
 
 router = APIRouter(
     prefix="/api/admin",

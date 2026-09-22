@@ -1,13 +1,17 @@
+"""Main entry point for the FastAPI application."""
+
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .database import Base, engine
+
 from . import models
-from .users import Router as user_router
-from .conversations import router as conversation_router
-from .messages import router as messanger_router
-from .auth import router as auth_router
 from .admin import router as admin_router
+from .auth import router as auth_router
 from .auth_admin import router as auth_admin_router
+from .conversations import router as conversation_router
+from .database import Base, engine
+from .messages import router as messanger_router
+from .users import Router as user_router
 
 Base.metadata.create_all(bind=engine)
 

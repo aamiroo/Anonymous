@@ -1,9 +1,11 @@
+"""API endpoints for managing user-related operations."""
+
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from .database import get_db
 from .models import User
-
 
 Router = APIRouter(prefix="/api/users", tags=["users"])
 

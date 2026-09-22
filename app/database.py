@@ -1,5 +1,8 @@
+"""Database engine, session management, and SQLAlchemy base configuration."""
+
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase , sessionmaker
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 DATABASE_URL = "sqlite:///./anonymous.db"
 

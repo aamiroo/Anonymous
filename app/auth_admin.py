@@ -1,15 +1,17 @@
-from datetime import datetime, timedelta, timezone
+"""Admin authentication and JWT token management."""
+
+
+from datetime import UTC, datetime, timedelta, timezone
 
 import jwt
-from pwdlib import PasswordHash
-
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pwdlib import PasswordHash
 from sqlalchemy.orm import Session
 
+from .config import Settings
 from .database import get_db
 from .models import Admin
-from .config import Settings
 
 settings = Settings()
 
@@ -25,7 +27,7 @@ security = HTTPBearer()
 
 
 def create_access_token(admin_id: int) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(hours=12)
+    expire = datetime.now(UTC) + timedelta(hours=12)
 
     payload = {
         "sub": str(admin_id),

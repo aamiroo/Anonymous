@@ -1,15 +1,18 @@
+"""Eitaa user authentication and login endpoints."""
+
+
 import hashlib
 import hmac
 import json
 import time
 from urllib.parse import parse_qsl
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from .config import Settings
 from .database import get_db
 from .models import User
-from .config import Settings
 
 settings = Settings()
 

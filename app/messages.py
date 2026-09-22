@@ -1,8 +1,13 @@
+"""API endpoints for creating and sending messages."""
+
+
 from datetime import datetime
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+
 from .database import get_db
-from .models import Message, Conversation
+from .models import Conversation, Message
 
 router = APIRouter(
     prefix="/api/Messages",
