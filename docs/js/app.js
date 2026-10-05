@@ -197,6 +197,11 @@
     window.addEventListener('online', function () { setOnline(true); });
     window.addEventListener('offline', function () { setOnline(false); });
     renderSplash();
+
+    console.log('Eitaa:', window.Eitaa);
+    console.log('WebApp:', window.Eitaa?.WebApp);
+    console.log('initData:', window.Eitaa?.WebApp?.initData);
+    
     if (state.hasEitaa) {
       authenticate();
     } else {
