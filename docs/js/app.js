@@ -198,9 +198,11 @@
     window.addEventListener('offline', function () { setOnline(false); });
     renderSplash();
 
-    console.log('Eitaa:', window.Eitaa);
-    console.log('WebApp:', window.Eitaa?.WebApp);
-    console.log('initData:', window.Eitaa?.WebApp?.initData);
+    alert(
+      'Eitaa: ' + !!window.Eitaa +
+      '\nWebApp: ' + !!window.Eitaa?.WebApp +
+      '\ninitData: ' + !!window.Eitaa?.WebApp?.initData
+    );
     
     if (state.hasEitaa) {
       authenticate();
