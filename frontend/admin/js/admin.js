@@ -10,7 +10,7 @@
   var API_BASE = window.EA_API_BASE || (
     (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
       ? 'http://localhost:8000'
-      : location.protocol + '//' + location.hostname + ':8000'
+      : ''
   );
 
   var EP = {
