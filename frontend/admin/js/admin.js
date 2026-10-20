@@ -1,6 +1,6 @@
 /* ============================================================
-   ناشناس — Admin Panel · «اتاق تاریک» (SPA)
-   JWT auth · protected admin APIs · reply workspace.
+   ناشناس — Admin Panel (SPA)
+   Telegram-style workspace. JWT auth · protected admin APIs.
    Backend contract is unchanged.
    ============================================================ */
 (function () {
@@ -22,6 +22,22 @@
 
   var TOKEN_KEY = 'dr-admin-token';
   var THEME_KEY = 'dr-admin-theme';
+
+  /* Avatar gradient pairs (per-chat identity) */
+  var AV_GRADS = [
+    ['#f472b6', '#a78bfa'],
+    ['#34d399', '#22d3ee'],
+    ['#fbbf24', '#fb7185'],
+    ['#60a5fa', '#a78bfa'],
+    ['#f97316', '#f472b6'],
+    ['#2dd4bf', '#60a5fa'],
+    ['#a3e635', '#34d399']
+  ];
+  function avGrad(id) {
+    var n = parseInt(id, 10);
+    if (!n || n < 1) n = 1;
+    return AV_GRADS[(n - 1) % AV_GRADS.length];
+  }
 
   /* ── State ──────────────────────────────────────────────── */
   var state = {
@@ -49,22 +65,21 @@
   var $$ = function (s, p) { return Array.prototype.slice.call((p || document).querySelectorAll(s)); };
   var app = $('#app');
 
-  /* ── Veil emblem ────────────────────────────────────────── */
-  function veil(seed, cls) {
-    seed = seed || 0;
-    var rot = ((seed * 37) % 5) * 12 - 24;
-    return '<svg class="anon-mark' + (cls ? ' ' + cls : '') + '" viewBox="0 0 48 48" aria-hidden="true" focusable="false">' +
-      '<rect class="am-tile" x="2.5" y="2.5" width="43" height="43" rx="13"/>' +
-      '<g style="transform:rotate(' + rot + 'deg); transform-origin:24px 24px">' +
-      '<rect class="am-veil" x="11" y="18.5" width="26" height="4.6" rx="2.3"/>' +
-      '<rect class="am-eye" x="15.5" y="25.5" width="5.2" height="7" rx="2.6"/>' +
-      '<rect class="am-eye" x="27.3" y="25.5" width="5.2" height="7" rx="2.6"/>' +
-      '</g></svg>';
+  /* ── Brand mark (the calligraphy logo, tinted via currentColor) ── */
+  function logo(size) {
+    return '<i class="logo-mark ' + (size || 'lm-sm') + '" aria-hidden="true"></i>';
+  }
+  function avatar(id, cls) {
+    var g = avGrad(id);
+    return '<span class="avatar' + (cls ? ' ' + cls : '') + '" style="--av1:' + g[0] + ';--av2:' + g[1] + '">' + logo() + '</span>';
+  }
+  function seal(size) {
+    return '<div class="pane-empty-seal">' + logo(size || 'lm-lg') + '</div>';
   }
 
   function icon(name) {
     var paths = {
-      send:    '<path d="M19 12H5M11 18l-6-6 6-6"/>',
+      send:    '<path fill="currentColor" stroke="none" d="M3.4 20.4l17.4-7.5c.8-.35.8-1.45 0-1.8L3.4 3.6c-.66-.29-1.39.2-1.39.92l-.01 4.61c0 .5.37.93.87.99L17 12 2.87 13.88c-.5.07-.87.5-.87 1l.01 4.61c0 .72.73 1.2 1.39.91z"/>',
       back:    '<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>',
       search:  '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
       eye:     '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
@@ -77,6 +92,7 @@
       check:   '<path d="M20 6L9 17l-5-5"/>',
       quill:   '<path d="M20 4c1 1.4.6 3.6-1 5.4L8 20l-4 1 1-4L16 5c1.6-1.6 3.7-2 5-1z"/><path d="M14 8l2 2"/>',
       lock:    '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+      smile:   '<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c1 1.2 2.2 1.8 3.5 1.8s2.5-.6 3.5-1.8"/><circle cx="9" cy="9.6" r="0.6" fill="currentColor"/><circle cx="15" cy="9.6" r="0.6" fill="currentColor"/>',
     };
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[name] || '') + '</svg>';
   }
@@ -166,6 +182,8 @@
   /* ── Theme ──────────────────────────────────────────────── */
   function applyTheme() {
     document.documentElement.setAttribute('data-theme', state.theme);
+    var meta = $('meta[name="theme-color"]:not([media])');
+    if (meta) meta.content = state.theme === 'dark' ? '#0a0e17' : '#eef1f8';
     var btn = $('.theme-toggle');
     if (btn) btn.innerHTML = state.theme === 'dark' ? icon('sun') : icon('moon');
   }
@@ -264,7 +282,7 @@
       '<div class="login">' +
         '<section class="login-story">' +
           '<div class="story-inner">' +
-            '<div class="story-frame">' + veil(0, 'am-solid') + '</div>' +
+            '<div class="story-frame">' + logo('lm-lg') + '</div>' +
             '<div class="story-brand">ناشناس</div>' +
             '<div class="story-role">' + icon('lock') + 'اتاق تاریک</div>' +
             '<p class="story-copy">نامه‌های بی‌نام این‌جا می‌آیند؛<br>محرمانه نگاهشان کن و پاسخ بده.</p>' +
@@ -363,7 +381,7 @@
       '<header class="topbar">' +
         '<div class="topbar-in">' +
           '<div class="brand">' +
-            '<span class="brand-seal">' + veil(0, 'am-solid') + '</span>' +
+            '<span class="brand-logo">' + logo('lm-sm') + '</span>' +
             '<span class="brand-name">ناشناس</span>' +
             '<span class="brand-badge">اتاق تاریک</span>' +
           '</div>' +
@@ -490,7 +508,7 @@
   function convItemHtml(c) {
     var ans = isAnswered(c);
     return '<div class="conv-item' + (String(state.selectedId) === String(c.id) ? ' active' : '') + '" data-id="' + c.id + '">' +
-      '<span class="conv-avatar">' + veil(c.id, ans ? 'am-plain' : 'am-solid') + '</span>' +
+      avatar(c.id) +
       '<div class="conv-body">' +
         '<div class="conv-top">' +
           '<span class="conv-name">' + esc(convName(c)) + '</span>' +
@@ -530,7 +548,7 @@
       title = 'هنوز نامه‌ای نرسیده';
       desc = 'به محض رسیدن یک نامهٔ بی‌نام، اینجا دیده می‌شود.';
     }
-    return '<div class="pane-empty">' + veil(0, 'am-plain') +
+    return '<div class="pane-empty">' + seal() +
       '<p class="pane-empty-title">' + title + '</p>' +
       '<p class="pane-empty-desc">' + desc + '</p></div>';
   }
@@ -556,15 +574,13 @@
     var el = $('.conv-item[data-id="' + id + '"]');
     if (!el) return;
     var p = state.previewCache[id] || {};
-    var ans = isAnswered({ status: state.status }) || p.lastSender === 'admin';
-    var av = $('.conv-avatar', el);
-    if (av) av.innerHTML = veil(id, ans ? 'am-plain' : 'am-solid');
     var tm = $('.conv-time', el);
     if (tm) tm.textContent = fmtRel(p.created_at);
     var pr = $('.conv-preview', el);
     if (pr) pr.textContent = p.content || '';
     var chip = $('.chip', el);
     if (chip) {
+      var ans = p.lastSender === 'admin';
       chip.className = 'chip ' + (ans ? 'chip-answered' : 'chip-pending');
       chip.textContent = ans ? 'پاسخ داده شد' : 'در انتظار';
     }
@@ -572,7 +588,8 @@
 
   /* ── Stage (detail) ──────────────────────────────────────── */
   function stageEmptyHtml() {
-    return '<div class="stage-empty">' + veil(0, 'am-outline') +
+    return '<div class="stage-empty">' +
+      '<div class="stage-empty-seal">' + logo('lm-lg') + '</div>' +
       '<p class="stage-empty-title">هیچ نامه‌ای باز نشده</p>' +
       '<p class="stage-empty-desc">یک نامه از فهرست کنار دست انتخاب کن تا متن آن اینجا باز شود؛ و اگر پاسخی در راه است، همین‌جا بنویس.</p>' +
     '</div>';
@@ -589,14 +606,14 @@
   function stageMessagesHtml() {
     var msgs = state.messages || [];
     if (!msgs.length) {
-      return '<div class="pane-empty">' + veil(0, 'am-plain') +
+      return '<div class="pane-empty">' + seal() +
         '<p class="pane-empty-title">نامه خالی است</p>' +
         '<p class="pane-empty-desc">متن نامه هنوز ثبت نشده. شاید کاربر چیزی نگفته باشد.</p></div>';
     }
     var out = '';
     var prevKey = null;
     var prevSender = null;
-    msgs.forEach(function (m) {
+    msgs.forEach(function (m, i) {
       var k = dayKey(m.created_at);
       if (k !== prevKey) {
         out += '<div class="day"><span>' + esc(fmtDay(m.created_at)) + '</span></div>';
@@ -604,11 +621,19 @@
         prevSender = null;
       }
       var isAdmin = m.sender === 'admin';
-      var grp = isAdmin === prevSender;
+      var grouped = prevSender === isAdmin;
       prevSender = isAdmin;
-      out += '<div class="msg ' + (isAdmin ? 'msg-admin' : 'msg-user') + (grp ? ' grp' : '') + '">' +
-        '<div class="bubble">' + esc(m.content) + '</div>' +
-        '<div class="msg-meta"><span class="who">' + (isAdmin ? 'شما' : 'بی\u200cنام') + '</span><span>' + esc(fmtTime(m.created_at)) + '</span></div>' +
+      var next = msgs[i + 1];
+      var groupEnd = !next || (next.sender === 'admin') !== isAdmin;
+      var pos = !grouped && groupEnd ? 'single' : (!grouped ? 'first' : (groupEnd ? 'last' : 'mid'));
+      out += '<div class="msg ' + (isAdmin ? 'msg-admin' : 'msg-user') + ' ' + pos + '">' +
+        '<div class="bubble">' +
+          esc(m.content) +
+          '<span class="msg-meta">' +
+            (isAdmin ? '' : '<span class="who">بی\u200cنام</span>') +
+            '<span>' + esc(fmtTime(m.created_at)) + '</span>' +
+          '</span>' +
+        '</div>' +
       '</div>';
     });
     return out;
@@ -619,7 +644,7 @@
       return '<div class="reply-dock">' +
         '<div class="compose-line">' +
           '<textarea disabled placeholder="در حال بارگذاری نامه..." rows="1"></textarea>' +
-          '<button class="send-btn" disabled type="button">' + icon('send').replace('<svg', '<svg class="flip"') + '</button>' +
+          '<button class="send-btn" disabled type="button">' + icon('send') + '</button>' +
         '</div>' +
         '<p class="reply-hint">می‌توانی پاسخ بدهی</p>' +
       '</div>';
@@ -636,9 +661,9 @@
     return '<div class="reply-dock">' +
       '<div class="compose-line">' +
         '<textarea id="reply-input" placeholder="پاسخ بنویس…" rows="1"></textarea>' +
-        '<button class="send-btn" id="reply-send" disabled type="button" aria-label="ارسال پاسخ">' + icon('send').replace('<svg', '<svg class="flip"') + '</button>' +
+        '<button class="send-btn" id="reply-send" disabled type="button" aria-label="ارسال پاسخ">' + icon('send') + '</button>' +
       '</div>' +
-      '<p class="reply-hint">پاسخ فقط یک بار ارسال می‌شود</p>' +
+      '<p class="reply-hint">' + icon('smile') + 'پاسخ فقط یک بار ارسال می‌شود</p>' +
     '</div>';
   }
 
@@ -656,7 +681,7 @@
     stage.innerHTML =
       '<div class="stage-head">' +
         '<button class="icon-btn stage-back" id="wh-back" type="button" title="بازگشت" aria-label="بازگشت">' + icon('back') + '</button>' +
-        '<span class="stage-avatar">' + veil(id, answered ? 'am-plain' : 'am-solid') + '</span>' +
+        avatar(id, 'sm') +
         '<div class="stage-meta">' +
           '<span class="stage-name">' + esc(convName({ id: id })) + '</span>' +
           '<span class="stage-sub">' + esc('کاربرِ ' + (state.selectedUserId != null ? state.selectedUserId : '…')) + ' · ' + esc(fmtRel(state.createdAt)) + '</span>' +
@@ -690,7 +715,7 @@
     if (!ta || !send) return;
     function resizeTa() {
       ta.style.height = 'auto';
-      ta.style.height = Math.min(150, ta.scrollHeight) + 'px';
+      ta.style.height = Math.min(140, ta.scrollHeight) + 'px';
     }
     function updateSend() {
       send.disabled = !ta.value.trim() || state.sending;
@@ -802,6 +827,13 @@
       var c = document.createElement('div');
       c.id = 'toast-container';
       document.body.appendChild(c);
+    }
+    if (!document.querySelector('.aurora')) {
+      var a = document.createElement('div');
+      a.className = 'aurora';
+      a.setAttribute('aria-hidden', 'true');
+      a.innerHTML = '<i></i><i></i><i></i>';
+      document.body.insertBefore(a, document.body.firstChild);
     }
     window.addEventListener('resize', setBodyView);
     window.addEventListener('online', updateConnState);

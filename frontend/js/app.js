@@ -1,6 +1,6 @@
 /* ============================================================
-   ناشناس — Anonymous Messaging · «نامهٔ بی‌نام» (SPA)
-   The Nameless Letter. Connects to the existing FastAPI
+   ناشناس — Anonymous Messaging · «شبِ نامه‌ها» (SPA)
+   Glass-over-midnight UI. Connects to the existing FastAPI
    backend; API contract unchanged.
    ============================================================ */
 (function () {
@@ -24,16 +24,34 @@
     convo:      function (cid) { return API_BASE + '/api/conversations/' + cid; },
   };
 
+  /* Avatar gradient pairs (Telegram-style per-chat identity) */
+  var AV_GRADS = [
+    ['#f472b6', '#a78bfa'],
+    ['#34d399', '#22d3ee'],
+    ['#fbbf24', '#fb7185'],
+    ['#60a5fa', '#a78bfa'],
+    ['#f97316', '#f472b6'],
+    ['#2dd4bf', '#60a5fa'],
+    ['#a3e635', '#34d399']
+  ];
+  function avGrad(id) {
+    var n = parseInt(id, 10);
+    if (!n || n < 1) n = 1;
+    return AV_GRADS[(n - 1) % AV_GRADS.length];
+  }
+
   /* ── State ──────────────────────────────────────────────── */
   var state = {
     screen: 'boot',            // boot | login | home | chat
     user: null,
     conversations: [],
+    visibleConvos: [],
     activeConvo: null,
     messages: [],
+    query: '',
     notices: { convLoading: false, msgsLoading: false, sending: false },
     online: navigator.onLine,
-    theme: localStorage.getItem(THEME_KEY) || 'light',
+    theme: localStorage.getItem(THEME_KEY) || 'dark',
     hasEitaa: !!(window.Eitaa && window.Eitaa.WebApp && window.Eitaa.WebApp.initData),
     timers: null,
   };
@@ -42,30 +60,29 @@
   var $$ = function (s, p) { return Array.prototype.slice.call((p || document).querySelectorAll(s)); };
   var app = $('#app');
 
-  /* ── Veil emblem ────────────────────────────────────────── */
-  function veil(seed, cls) {
-    seed = seed || 0;
-    var rot = ((seed * 37) % 5) * 12 - 24;
-    return '<svg class="anon-mark' + (cls ? ' ' + cls : '') + '" viewBox="0 0 48 48" aria-hidden="true" focusable="false">' +
-      '<rect class="am-tile" x="2.5" y="2.5" width="43" height="43" rx="13"/>' +
-      '<g style="transform:rotate(' + rot + 'deg); transform-origin:24px 24px">' +
-      '<rect class="am-veil" x="11" y="18.5" width="26" height="4.6" rx="2.3"/>' +
-      '<rect class="am-eye" x="15.5" y="25.5" width="5.2" height="7" rx="2.6"/>' +
-      '<rect class="am-eye" x="27.3" y="25.5" width="5.2" height="7" rx="2.6"/>' +
-      '</g></svg>';
+  /* ── Brand mark (the calligraphy logo, tinted via currentColor) ── */
+  function logo(size) {
+    return '<i class="logo-mark ' + (size || 'lm-md') + '" aria-hidden="true"></i>';
+  }
+  function avatar(id, cls) {
+    var g = avGrad(id);
+    return '<span class="avatar' + (cls ? ' ' + cls : '') + '" style="--av1:' + g[0] + ';--av2:' + g[1] + '">' + logo() + '</span>';
   }
 
   function icon(name) {
     var paths = {
-      send:    '<path d="M12 16.5V4M6.5 8.5 12 3l5.5 5.5"/><path d="M4.5 13.5 6.8 19a1.4 1.4 0 0 0 1.3.9h7.8a1.4 1.4 0 0 0 1.3-.9l2.3-5.5"/>',
+      send:    '<path fill="currentColor" stroke="none" d="M3.4 20.4l17.4-7.5c.8-.35.8-1.45 0-1.8L3.4 3.6c-.66-.29-1.39.2-1.39.92l-.01 4.61c0 .5.37.93.87.99L17 12 2.87 13.88c-.5.07-.87.5-.87 1l.01 4.61c0 .72.73 1.2 1.39.91z"/>',
       back:    '<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>',
       moon:    '<path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a7 7 0 0 0 11 11z"/>',
-      sun:     '<circle cx="12" cy="12" r="4.2"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/>',
+      sun:     '<circle cx="12" cy="12" r="4.2"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/>',
+      search:  '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
       clock:   '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-      quill:   '<path d="M20 4c1 1.4.6 3.6-1 5.4L8 20l-4 1 1-4L16 5c1.6-1.6 3.7-2 5-1z"/><path d="M14 8l2 2"/>',
-      eye:     '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
-      eyeOff:  '<path d="M9.9 4.2A9.8 9.8 0 0 1 12 4c6.5 0 10 8 10 8a17.6 17.6 0 0 1-2.4 3.4M6.3 6.3A17.7 17.7 0 0 0 2 12s3.5 8 10 8a9.7 9.7 0 0 0 4.6-1.1M4 4l16 16"/>',
+      check:   '<path d="M4.5 12.5l5 5L20 6.5"/>',
+      checks:  '<path d="M2.5 12.5l4.5 4.5L16 8"/><path d="M10.5 15.5l1.5 1.5L22 7"/>',
       retry:   '<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/>',
+      quill:   '<path d="M20 4c1 1.4.6 3.6-1 5.4L8 20l-4 1 1-4L16 5c1.6-1.6 3.7-2 5-1z"/><path d="M14 8l2 2"/>',
+      smile:   '<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c1 1.2 2.2 1.8 3.5 1.8s2.5-.6 3.5-1.8"/><circle cx="9" cy="9.6" r="0.6" fill="currentColor"/><circle cx="15" cy="9.6" r="0.6" fill="currentColor"/>',
+      eyeOff:  '<path d="M9.9 4.2A9.8 9.8 0 0 1 12 4c6.5 0 10 8 10 8a17.6 17.6 0 0 1-2.4 3.4M6.3 6.3A17.7 17.7 0 0 0 2 12s3.5 8 10 8a9.7 9.7 0 0 0 4.6-1.1M4 4l16 16"/>',
     };
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[name] || '') + '</svg>';
   }
@@ -171,7 +188,7 @@
   function applyTheme(t) {
     document.documentElement.setAttribute('data-theme', t);
     var meta = $('meta[name="theme-color"]:not([media])');
-    if (meta) meta.content = t === 'dark' ? '#191611' : '#f3efe6';
+    if (meta) meta.content = t === 'dark' ? '#0a0e17' : '#eef1f8';
     var btn = $('.theme-toggle');
     if (btn) btn.innerHTML = t === 'dark' ? icon('sun') : icon('moon');
   }
@@ -185,13 +202,14 @@
   function setOnline(v) {
     state.online = v;
     var dots = $$('.status-dot');
-    dots.forEach(function (d) { d.textContent = ''; d.classList.toggle('offline', !v); });
+    dots.forEach(function (d) { d.classList.toggle('offline', !v); });
     var bar = $('.offline-bar');
     if (bar) bar.classList.toggle('visible', !v);
   }
 
   /* ── Boot / Auth ────────────────────────────────────────── */
   function init() {
+    injectAurora();
     applyTheme(state.theme);
     setOnline(state.online);
     window.addEventListener('online', function () { setOnline(true); });
@@ -209,6 +227,15 @@
         setTimeout(showDevLogin, 650);
       }
     }
+  }
+
+  function injectAurora() {
+    if ($('.aurora')) return;
+    var a = document.createElement('div');
+    a.className = 'aurora';
+    a.setAttribute('aria-hidden', 'true');
+    a.innerHTML = '<i></i><i></i><i></i>';
+    document.body.insertBefore(a, document.body.firstChild);
   }
 
   function authenticate() {
@@ -229,8 +256,8 @@
     app.classList.remove('chat-mode');
     app.innerHTML =
       '<div class="splash-screen">' +
-        '<div class="splash-seal">' + veil(0, 'am-solid') + '</div>' +
-        '<h1 class="splash-name">ناشناس</h1>' +
+        '<div class="splash-logo">' + logo('lm-hero') + '</div>' +
+        '<h1 class="splash-name grad-text">ناشناس</h1>' +
         '<p class="splash-tag">پیامت را بی‌نام بفرست</p>' +
         '<div class="splash-dots"><span></span><span></span><span></span></div>' +
       '</div>';
@@ -243,8 +270,8 @@
     app.classList.remove('chat-mode');
     app.innerHTML =
       '<div class="dev-login">' +
-        '<div class="dev-card">' +
-          '<div class="dev-seal">' + veil(0, 'am-solid') + '</div>' +
+        '<div class="dev-card glass">' +
+          '<div class="dev-seal">' + logo('lm-lg') + '</div>' +
           '<h1 class="dev-title">ورود آزمایشی</h1>' +
           '<p class="dev-desc">در محیط غیر از ایتا، شناسه‌ی کاربری‌ات را وارد کن. در نسخهٔ اصلی، ورود از طریق Eitaa انجام می‌شود.</p>' +
           '<input type="number" id="dev-uid" class="field" placeholder="شناسه کاربری" inputmode="numeric" aria-label="شناسه کاربری">' +
@@ -273,6 +300,7 @@
     state.screen = 'home';
     state.activeConvo = null;
     state.messages = [];
+    state.query = '';
     clearTimers();
     app.classList.remove('chat-mode');
     renderHome();
@@ -283,36 +311,34 @@
   function renderHome() {
     app.innerHTML =
       '<header class="topbar">' +
-        '<div class="topbar-in">' +
+        '<div class="topbar-in glass">' +
           '<div class="brand">' +
-            '<span class="brand-seal">' + veil(0, 'am-solid') + '</span>' +
+            '<span class="brand-logo">' + logo('lm-sm') + '</span>' +
             '<span class="brand-name">ناشناس</span>' +
             '<span class="brand-status"><span class="dot status-dot"></span><span class="status-text">' + (state.online ? 'متصل' : 'آفلاین') + '</span></span>' +
           '</div>' +
           '<button class="icon-btn theme-toggle" aria-label="تغییر تم"></button>' +
         '</div>' +
+        '<div class="search-wrap">' +
+          '<div class="search-bar glass">' + icon('search') +
+            '<input type="search" id="home-search" placeholder="جستجو در نامه‌ها" aria-label="جستجو" autocomplete="off">' +
+          '</div>' +
+        '</div>' +
       '</header>' +
       '<div class="offline-bar"><span>' + icon('eyeOff') + 'اتصال اینترنت برقرار نیست</span></div>' +
       '<main class="page">' +
-        '<section class="hero">' +
-          '<div class="hero-seal">' + veil(state.user ? state.user.id : 1, 'am-solid') + '</div>' +
-          '<span class="kicker">' + icon('quill') + 'مکاتبهٔ بی‌نام</span>' +
-          '<h1 class="hero-title">حرف تو، بدون نشان</h1>' +
-          '<p class="hero-sub">پیامت را بنویس؛ بدون نام می‌ماند و پاسخِ مدیر، محرمانه به همین گفتگو برمی‌گردد.</p>' +
-        '</section>' +
-        '<section class="compose-card" aria-label="پیام ناشناس جدید">' +
-          '<div class="compose-head">' +
-            '<span class="compose-title">' + icon('quill') + 'پیام ناشناس جدید</span>' +
-            '<span class="compose-cap">تا ۲۰۰۰ حرف</span>' +
-          '</div>' +
+        '<section class="compose-hero glass" aria-label="پیام ناشناس جدید">' +
+          '<span class="compose-kicker">' + icon('quill') + 'مکاتبهٔ بی‌نام</span>' +
+          '<h2 class="compose-title">نامهٔ تازه بنویس</h2>' +
+          '<p class="compose-cap">بی‌نام می‌ماند؛ پاسخ مدیر محرمانه به همین گفتگو برمی‌گردد.</p>' +
           '<div class="compose-line">' +
-            '<textarea id="home-composer" class="composer-input" rows="1" placeholder="متن پیامت را بنویس…" maxlength="2000" aria-label="متن پیام ناشناس"></textarea>' +
-            '<button id="home-send" class="send-btn" disabled aria-label="ارسال پیام">' + icon('send') + '</button>' +
+            '<textarea id="home-composer" rows="1" placeholder="حرفت را بنویس…" maxlength="2000" aria-label="متن پیام ناشناس"></textarea>' +
+            '<button id="home-send" class="send-circle" disabled aria-label="ارسال پیام">' + icon('send') + '</button>' +
           '</div>' +
-          '<div class="compose-hint">' + icon('clock') + 'Enter برای ارسال · Shift+Enter برای خط جدید</div>' +
+          '<div class="compose-hint">' + icon('smile') + 'Enter برای ارسال · Shift+Enter برای خط جدید</div>' +
         '</section>' +
         '<div class="list-head">' +
-          '<span class="list-title">نامه‌های بی‌نام تو</span>' +
+          '<span class="list-title">گفتگوهای تو</span>' +
           '<span class="list-count" id="list-count"></span>' +
         '</div>' +
         '<div id="conv-list" class="conv-list"></div>' +
@@ -336,10 +362,17 @@
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
       });
     }
+    var search = $('#home-search');
+    if (search) {
+      search.addEventListener('input', function () {
+        state.query = search.value.trim();
+        renderConversations();
+      });
+    }
     $$('.conv').forEach(function (row) {
       row.addEventListener('click', function () {
         var idx = parseInt(row.getAttribute('data-idx'), 10);
-        if (state.conversations[idx]) openConversation(state.conversations[idx]);
+        if (state.visibleConvos[idx]) openConversation(state.visibleConvos[idx]);
       });
     });
   }
@@ -349,9 +382,27 @@
     ta.style.height = Math.min(ta.scrollHeight, 150) + 'px';
   }
 
+  function convTs(c) {
+    var msgs = c.messages || [];
+    var iso = msgs.length ? msgs[msgs.length - 1].created_at : c.created_at;
+    try { return new Date(iso).getTime() || 0; } catch (e) { return 0; }
+  }
+
+  function filteredConvos() {
+    var list = state.conversations.slice();
+    if (state.query) {
+      var q = state.query.toLowerCase();
+      list = list.filter(function (c) {
+        return String(c.id).indexOf(q) !== -1 || (convPreview(c) || '').toLowerCase().indexOf(q) !== -1;
+      });
+    }
+    list.sort(function (a, b) { return convTs(b) - convTs(a); });
+    return list;
+  }
+
   function convSkeletons(n) {
     var html = '';
-    for (var i = 0; i < (n || 4); i++) {
+    for (var i = 0; i < (n || 5); i++) {
       html += '<div class="skel-conv"><span class="skel-av skeleton"></span><span class="skel-lines"><span class="skel-line skeleton"></span><span class="skel-line skeleton"></span></span></div>';
     }
     return html;
@@ -369,29 +420,42 @@
       count.textContent = faNum(state.conversations.length) + ' نامه · ' + faNum(pend) + ' در انتظار';
     }
 
+    var list = filteredConvos();
+    state.visibleConvos = list;
+
     var html = '';
-    state.conversations.forEach(function (c, i) {
+    list.forEach(function (c, i) {
       var preview = convPreview(c);
       var answered = convAnswered(c);
       html +=
-        '<button type="button" class="conv" data-idx="' + i + '" style="animation-delay:' + (i * 45) + 'ms">' +
-          '<span class="conv-avatar">' + veil(c.id || i + 1, 'am-plain') + '</span>' +
+        '<button type="button" class="conv" data-idx="' + i + '" style="animation-delay:' + (i * 35) + 'ms">' +
+          avatar(c.id || i + 1) +
           '<span class="conv-body">' +
             '<span class="conv-top">' +
               '<span class="conv-name">نامهٔ ' + faNum(c.id) + '</span>' +
               '<span class="conv-time">' + esc(convTime(c)) + '</span>' +
             '</span>' +
-            '<span class="conv-preview">' + esc(preview) + '</span>' +
-            '<span class="conv-foot">' +
-              (answered
-                ? '<span class="chip chip-answered">پاسخ داده شد</span>'
-                : '<span class="chip chip-pending">در انتظار پاسخ</span>') +
+            '<span class="conv-bottom">' +
+              '<span class="conv-preview">' + esc(preview) + '</span>' +
+              '<span class="conv-state">' +
+                (answered
+                  ? '<span class="st-answered">' + icon('checks') + '</span>'
+                  : '<span class="st-pending">' + icon('clock') + '</span>') +
+              '</span>' +
             '</span>' +
           '</span>' +
         '</button>';
     });
-    el.innerHTML = html || emptyStateHTML();
+    el.innerHTML = html || (state.query ? emptySearchHTML() : emptyStateHTML());
     bindHomeEvents();
+  }
+
+  function emptySearchHTML() {
+    return '<div class="empty-state">' +
+      '<div class="empty-seal">' + logo('lm-lg') + '</div>' +
+      '<p class="empty-title">نتیجه‌ای نبود</p>' +
+      '<p class="empty-desc">برای «' + esc(state.query) + '» نامه‌ای پیدا نشد.</p>' +
+    '</div>';
   }
 
   function loadConversations(initial) {
@@ -420,7 +484,7 @@
     if (!el) return;
     el.innerHTML =
       '<div class="empty-state">' +
-        '<div class="empty-seal">' + veil(2, 'am-outline') + '</div>' +
+        '<div class="empty-seal">' + logo('lm-lg') + '</div>' +
         '<p class="empty-title">نامه‌ها باز نشد</p>' +
         '<p class="empty-desc">' + esc(e && e.message ? e.message : 'اتصال به سرور برقرار نشد') + '</p>' +
         '<button class="btn btn-ghost" id="retry-btn">' + icon('retry') + 'تلاش دوباره</button>' +
@@ -431,9 +495,9 @@
 
   function emptyStateHTML() {
     return '<div class="empty-state">' +
-      '<div class="empty-seal">' + veil(1, 'am-outline') + '</div>' +
+      '<div class="empty-seal">' + logo('lm-lg') + '</div>' +
       '<p class="empty-title">هنوز نامه‌ای نیست</p>' +
-      '<p class="empty-desc">اولین پیام ناشناس را از بالا بفرست؛ نوشته‌هایت این‌جا حفظ می‌شوند و پاسخ مدیر به همین نامه برمی‌گردد.</p>' +
+      '<p class="empty-desc">اولین پیام ناشناس را از بالا بفرست؛ پاسخ مدیر به همین‌جا برمی‌گردد.</p>' +
     '</div>';
   }
 
@@ -495,14 +559,14 @@
     var answered = c ? convAnswered(c) : false;
     app.innerHTML =
       '<header class="topbar">' +
-        '<div class="topbar-in">' +
-          '<button class="icon-btn" id="back-btn" aria-label="بازگشت به نامه‌ها">' + icon('back') + '</button>' +
+        '<div class="topbar-in glass">' +
+          '<button class="icon-btn" id="back-btn" aria-label="بازگشت به گفتگوها">' + icon('back') + '</button>' +
           '<div class="chat-id">' +
-            '<span class="chat-avatar">' + veil(c ? c.id : 1, 'am-solid') + '</span>' +
-            '<span class="chat-meta">' +
+            avatar(c ? c.id : 1, 'sm') +
+            '<div class="chat-meta">' +
               '<span class="chat-name">نامهٔ ' + (c ? faNum(c.id) : '') + '</span>' +
               '<span class="chat-sub">' + statusChip(answered) + '</span>' +
-            '</span>' +
+            '</div>' +
           '</div>' +
           '<button class="icon-btn theme-toggle" aria-label="تغییر تم"></button>' +
         '</div>' +
@@ -512,10 +576,10 @@
         '<div class="chat-scroll" id="chat-messages"></div>' +
         '<div class="chat-composer">' +
           '<div class="compose-line">' +
-            '<textarea id="chat-input" class="composer-input" rows="1" placeholder="پاسخ ناشناس بنویس…" maxlength="2000" aria-label="متن پیام"></textarea>' +
-            '<button id="chat-send" class="send-btn" disabled aria-label="ارسال پیام">' + icon('send') + '</button>' +
+            '<textarea id="chat-input" rows="1" placeholder="حرفت را بنویس…" maxlength="2000" aria-label="متن پیام"></textarea>' +
+            '<button id="chat-send" class="send-circle" disabled aria-label="ارسال پیام">' + icon('send') + '</button>' +
           '</div>' +
-          '<div class="compose-hint">' + icon('clock') + 'Enter برای ارسال · Shift+Enter برای خط جدید</div>' +
+          '<div class="compose-hint">' + icon('smile') + 'Enter برای ارسال · Shift+Enter برای خط جدید</div>' +
         '</div>' +
       '</main>';
     applyTheme(state.theme);
@@ -525,7 +589,7 @@
 
   function statusChip(answered) {
     return answered
-      ? '<span class="chip chip-answered">پاسخ داده شد</span>'
+      ? '<span class="chip chip-answered">پاسخ رسید</span>'
       : '<span class="chip chip-pending">در انتظار پاسخ</span>';
   }
 
@@ -633,12 +697,13 @@
     if (!state.messages.length) {
       el.innerHTML =
         '<div class="chat-empty">' +
-          '<div class="chat-empty-seal">' + veil((state.activeConvo && state.activeConvo.id) || 1, 'am-outline') + '</div>' +
+          '<div class="chat-empty-seal">' + logo('lm-lg') + '</div>' +
           '<p class="chat-empty-title">شروع این نامه</p>' +
           '<p class="chat-empty-desc">پیامت را بنویس؛ پاسخ محرمانه به همین‌جا می‌رسد.</p>' +
         '</div>';
       return;
     }
+    var answered = convAnswered(state.activeConvo);
     var html = '';
     var lastDate = '';
     state.messages.forEach(function (m, i) {
@@ -652,12 +717,19 @@
       var next = state.messages[i + 1];
       var grouped = prev && prev.sender === m.sender;
       var groupEnd = !next || next.sender !== m.sender;
+      var pos = !grouped && groupEnd ? 'single' : (!grouped ? 'first' : (groupEnd ? 'last' : 'mid'));
+      var ticks = '';
+      if (isUser) {
+        ticks = m.pending
+          ? icon('clock')
+          : (answered ? icon('checks') : icon('check'));
+      }
       html +=
-        '<div class="msg ' + (isUser ? 'msg-user' : 'msg-admin') + (grouped ? ' grp' : '') + '">' +
-          '<div class="bubble">' + esc(m.content) + '</div>' +
-          (groupEnd
-            ? '<span class="msg-meta">' + (m.pending ? icon('clock') : '') + fmtTime(m.created_at) + '</span>'
-            : '') +
+        '<div class="msg ' + (isUser ? 'msg-user' : 'msg-admin') + ' ' + pos + '">' +
+          '<div class="bubble">' +
+            '<span class="b-text">' + esc(m.content) + '</span>' +
+            '<span class="msg-meta">' + fmtTime(m.created_at) + ticks + '</span>' +
+          '</div>' +
         '</div>';
     });
     el.innerHTML = html;
