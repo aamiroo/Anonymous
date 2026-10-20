@@ -29,6 +29,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
 if __name__ == "__main__":
-    with http.server.HTTPServer(("0.0.0.0", PORT), Handler) as s:
+    with http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler) as s:
         print(f"Frontend: http://localhost:{PORT}")
         s.serve_forever()
