@@ -98,25 +98,44 @@ async def login(
         detail="Invalid user data",
         )
 
+    if not isinstance(user_info, dict):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid user data",
+        )
+    
     eitaa_user_id = user_info.get("id")
     if eitaa_user_id is None:
         raise HTTPException(
             status_code=401 ,
             detail="User ID not found"
         )
-    eitaa_user_id = str (eitaa_user_id)
+
+    eitaa_user_id = str(eitaa_user_id)
+    profile = {
+        "first_name": user_info.get("first_name"),
+        "last_name": user_info.get("last_name"),
+        "username": user_info.get("username"),
+    }
     db_user = (
         db.query(User)
         .filter(User.eitta_user_id == eitaa_user_id)
         .first()
     )
-    if not db_user:
+    if db_user is None:
         db_user = User(
-            eitaa_user_id=eitaa_user_id
+            eitaa_user_id=eitaa_user_id,
+            **profile,
         )
         db.add(db_user)
-        db.commit()
-        db.refresh(db_user)
+    else:
+        for field, value in profile.items():
+            if value is not None and value != "":
+                setattr(db_user, field, value)
+
+    db.commit()
+    db.refresh(db_user)
+    
     return {
         "id": db_user.id,
         "eitaa_user_id": db_user.eitta_user_id,

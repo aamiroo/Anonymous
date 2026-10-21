@@ -19,6 +19,20 @@ class User(Base):
         index=True
     )
 
+    first_name: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True)
+    
+    last_name: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    username: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
     created_at : Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
