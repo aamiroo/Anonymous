@@ -215,8 +215,8 @@
     window.addEventListener('online', function () { setOnline(true); });
     window.addEventListener('offline', function () { setOnline(false); });
     renderSplash();
-    if (state.hasEitaa) {
-      authenticate();
+    if (window.Eitaa && window.Eitaa.WebApp) {
+      authenticate(0);
     } else {
       var saved = null;
       try { saved = JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) { saved = null; }
@@ -238,15 +238,48 @@
     document.body.insertBefore(a, document.body.firstChild);
   }
 
-  function authenticate() {
-    var initData = window.Eitaa && window.Eitaa.WebApp ? (window.Eitaa.WebApp.initData || '') : '';
-    if (!initData) { showDevLogin(); return; }
-    api(EP.login(initData)).then(function (data) {
+  function authenticate(attempt) {
+    attempt = attempt || 0;
+    var webApp = window.Eitaa && window.Eitaa.WebApp;
+    var initData = webApp ? (webApp.initData || '') : '';
+
+    if (!initData) {
+      if (attempt < 20) {
+        setTimeout(function () {
+          authenticate(attempt + 1);
+        }, 250);
+        return;
+      }
+      showAuthError('اطلاعات ورود ایتا دریافت نشد. مینی‌اپ را از داخل ایتا دوباره باز کنید.');
+      return;
+    }
+
+    api(EP.login(initData), { method: 'POST' }).then(function (data) {
       state.user = data;
       localStorage.setItem(USER_KEY, JSON.stringify(data));
       showHome();
-    }).catch(function () {
-      showDevLogin();
+    }).catch(function (err) {
+      console.error('[Eitaa auth] Login failed:', err);
+      showAuthError('ورود خودکار ناموفق بود: ' + (err.message || 'خطای نامشخص'));
+    });
+  }
+
+  function showAuthError(message) {
+    state.screen = 'login';
+    app.classList.remove('chat-mode');
+    app.innerHTML =
+      '<div class="dev-login"><div class="dev-card glass">' +
+      '<div class="dev-seal">' + logo('lm-lg') + '</div>' +
+      '<h1 class="dev-title">ورود به ایتا</h1>' +
+      '<p class="dev-desc"></p>' +
+      '<button id="eitaa-retry" class="btn btn-primary" style="width:100%;margin-top:14px">تلاش مجدد</button>' +
+      '</div></div>';
+    var desc = $('.dev-desc');
+    if (desc) desc.textContent = message;
+    var btn = $('#eitaa-retry');
+    if (btn) btn.addEventListener('click', function () {
+      renderSplash();
+      authenticate(0);
     });
   }
 

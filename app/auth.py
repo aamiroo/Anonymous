@@ -124,7 +124,7 @@ async def login(
     )
     if db_user is None:
         db_user = User(
-            eitaa_user_id=eitaa_user_id,
+            eitta_user_id=eitaa_user_id,
             **profile,
         )
         db.add(db_user)
