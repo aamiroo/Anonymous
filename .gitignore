@@ -35,3 +35,6 @@ htmlcov/
 Thumbs.db
 
 wheelhouse/
+
+# Private admin identity extension
+/private/

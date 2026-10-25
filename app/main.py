@@ -13,6 +13,13 @@ from .database import Base, engine
 from .messages import router as messanger_router
 from .users import Router as user_router
 
+try:
+    from private.identity_api import router as private_identity_router
+except ModuleNotFoundError as exc:
+    if exc.name not in {"private", "private.identity_api"}:
+        raise
+    private_identity_router = None
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -34,6 +41,9 @@ app.include_router(messanger_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(auth_admin_router)
+
+if private_identity_router is not None:
+    app.include_router(private_identity_router)
 
 @app.get("/")
 async def root():

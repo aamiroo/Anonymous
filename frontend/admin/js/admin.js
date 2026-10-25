@@ -415,6 +415,61 @@
     applyTheme();
     bindConsoleEvents();
     updateConnState();
+    loadPrivateIdentityExtension();
+  }
+
+  var privateIdentityExtensionLoading = false;
+  var privateIdentityExtensionLoaded = false;
+
+  function loadPrivateIdentityExtension() {
+    if (privateIdentityExtensionLoading ||
+        privateIdentityExtensionLoaded || !state.token) return;
+
+    privateIdentityExtensionLoading = true;
+
+    fetch(API_BASE + '/api/admin/private/identity-toggle.js', {
+      headers: { Authorization: 'Bearer ' + state.token },
+      cache: 'no-store'
+    })
+      .then(function (response) {
+        if (!response.ok) return null;
+        return response.text();
+      })
+      .then(function (scriptText) {
+        if (!scriptText) {
+          privateIdentityExtensionLoading = false;
+          return;
+        }
+
+        var scriptUrl = URL.createObjectURL(
+          new Blob([scriptText], { type: 'application/javascript' })
+        );
+        var script = document.createElement('script');
+        script.src = scriptUrl;
+
+        script.onload = function () {
+          privateIdentityExtensionLoaded = true;
+          privateIdentityExtensionLoading = false;
+          URL.revokeObjectURL(scriptUrl);
+
+          if (state.selectedId != null) {
+            window.dispatchEvent(new CustomEvent(
+              'ea:conversation-selected',
+              { detail: { id: state.selectedId } }
+            ));
+          }
+        };
+
+        script.onerror = function () {
+          privateIdentityExtensionLoading = false;
+          URL.revokeObjectURL(scriptUrl);
+        };
+
+        document.head.appendChild(script);
+      })
+      .catch(function () {
+        privateIdentityExtensionLoading = false;
+      });
   }
 
   function bindConsoleEvents() {
@@ -691,7 +746,13 @@
       '<div class="stage-scroll" id="stage-scroll">' + (loading ? stageSkeletonHtml() : stageMessagesHtml()) + '</div>' +
       replyDockHtml(loading ? 'loading' : (answered ? 'answered' : 'active'));
     bindStageEvents();
-    if (!loading) scrollStage();
+    if (!loading) {
+      window.dispatchEvent(new CustomEvent(
+        'ea:conversation-selected',
+        { detail: { id: id } }
+      ));
+      scrollStage();
+    }
   }
 
   function scrollStage() {
